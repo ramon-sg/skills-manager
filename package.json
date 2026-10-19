@@ -9,6 +9,6 @@
   "files": ["src", "skills", "README.md", "LICENSE"],
   "engines": { "node": ">=20" },
   "publishConfig": { "access": "public", "provenance": true },
-  "scripts": { "test": "node --test test/lib.test.mjs test/cli.test.mjs test/no-project-names.test.mjs" },
+  "scripts": { "test": "node --test test/lib.test.mjs test/notice.test.mjs test/cli.test.mjs test/no-project-names.test.mjs" },
   "dependencies": { "@clack/prompts": "1.8.1" }
 }

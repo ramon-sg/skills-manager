@@ -6,6 +6,7 @@
  *   skills-manager update [name]        move to the latest published; --dry-run only prints
  *   skills-manager check                fail if disk, lock and manifest do not match
  *   skills-manager list                 what is in the lock, with origin, version and whether a newer one exists
+ *   skills-manager session-notice       print the session-start skills for a SessionStart hook; never fails
  *   skills-manager init | add           pick from what is installed on the machine and install it
  *                                       (--candidates lists as JSON; --select picks without asking)
  *
@@ -24,6 +25,7 @@ import { fileURLToPath } from "node:url";
 
 import { assertRelPath, assertRepo, assertSkillName, fetchSource, git, insideTree, latestCommit, walk } from "./git.mjs";
 import { diffLock, findCollisions, hashFiles, resolvePluginSource, rewritePluginRefs } from "./lib.mjs";
+import { sessionNotice } from "./notice.mjs";
 import { commandPick } from "./pick.mjs";
 import {
   installedHash,
@@ -481,12 +483,33 @@ function commandList(root, home) {
 }
 
 /**
+ * Runs `session-notice` for a SessionStart hook: the notice goes to stdout and
+ * any problem becomes one line on stderr. It never exits non-zero, so a broken
+ * manifest cannot break a session start.
+ */
+function commandSessionNotice() {
+  try {
+    const { text, missing } = sessionNotice(git(["rev-parse", "--show-toplevel"], process.cwd()));
+    process.stdout.write(text);
+    for (const name of missing) {
+      console.error(`skills-manager: session-start skill "${name}" is not installed`);
+    }
+  } catch (error) {
+    console.error(`skills-manager: ${error.message.split("\n")[0]}`);
+  }
+}
+
+/**
  * Entry point: finds the repo root and dispatches the subcommand. Errors end
  * with their `exitCode` (2 for usage errors) or with 1.
  */
 async function main() {
   const [subcommand, ...rest] = process.argv.slice(2);
   const home = process.env.SKILLS_HOME ?? homedir();
+  if (subcommand === "session-notice") {
+    commandSessionNotice();
+    return;
+  }
   try {
     const root = git(["rev-parse", "--show-toplevel"], process.cwd());
     if (subcommand === "install") {
@@ -501,7 +524,7 @@ async function main() {
     } else if (subcommand === "init" || subcommand === "add") {
       await commandPick(root, { init: subcommand === "init", args: rest, home, install: () => installAll(root, { home }) });
     } else {
-      throw new Error(`Unknown subcommand: ${subcommand ?? "(none)"}; use install, update, check, list, init or add`);
+      throw new Error(`Unknown subcommand: ${subcommand ?? "(none)"}; use install, update, check, list, session-notice, init or add`);
     }
   } catch (error) {
     console.error(`❌ ${error.message}`);

@@ -8,6 +8,8 @@
  */
 import { createHash } from "node:crypto";
 
+import { assertSkillName } from "./git.mjs";
+
 /** Keys that identify the origin of a manifest source; only one per entry. */
 const SOURCE_KINDS = ["plugin", "repo", "local"];
 
@@ -41,9 +43,42 @@ const SELECT_SKILL_SEPARATOR = "+";
 /** Separates the plugin name from its marketplace in an id (`superpowers@claude-plugins-official`). */
 const PLUGIN_ID_SEPARATOR = "@";
 
+/** Keys allowed in the manifest's `paths`. */
+const PATH_KEYS = ["lock", "skillsDir", "settings"];
+
+/**
+ * Validates the optional `paths` and `sessionStart` fields of the manifest.
+ *
+ * @param manifest - Parsed manifest.
+ * @throws {Error} If `paths` is not an object with only known string keys, or
+ * `sessionStart` is not a list of valid skill names.
+ */
+function assertOptionalFields(manifest) {
+  const { paths, sessionStart } = manifest;
+  if (paths !== undefined) {
+    if (paths === null || typeof paths !== "object" || Array.isArray(paths)) {
+      throw new Error('"paths" must be an object.');
+    }
+    for (const [key, value] of Object.entries(paths)) {
+      if (!PATH_KEYS.includes(key)) {
+        throw new Error(`Unknown key "${key}" in "paths"; allowed: ${PATH_KEYS.join(", ")}`);
+      }
+      if (typeof value !== "string") {
+        throw new Error(`"paths.${key}" must be a string.`);
+      }
+    }
+  }
+  if (sessionStart !== undefined) {
+    if (!Array.isArray(sessionStart)) {
+      throw new Error('"sessionStart" must be a list of skill names.');
+    }
+    sessionStart.forEach(assertSkillName);
+  }
+}
+
 /**
  * Validates the skills manifest: each source must carry exactly one of
- * `plugin`, `repo` or `local`.
+ * `plugin`, `repo` or `local`; `paths` and `sessionStart`, if present, must be valid.
  *
  * @param text - JSON content of the manifest.
  * @returns The parsed manifest.
@@ -66,6 +101,7 @@ export function parseManifest(text) {
       );
     }
   }
+  assertOptionalFields(manifest);
   return manifest;
 }
 

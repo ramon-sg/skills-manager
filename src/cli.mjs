@@ -34,6 +34,7 @@ import {
   lockedNames,
   manifestPlugins,
   readJson,
+  LOCK_VERSION,
   readLock,
   readManifest,
   sameSet,
@@ -391,7 +392,7 @@ function writeAll(paths, { plans, stale, lock, manifest }) {
     }
   }
   const sorted = Object.fromEntries(Object.keys(skills).sort().map((name) => [name, skills[name]]));
-  const text = `${JSON.stringify({ skills: sorted, plugins: manifestPlugins(manifest) }, null, 2)}\n`;
+  const text = `${JSON.stringify({ lockVersion: LOCK_VERSION, skills: sorted, plugins: manifestPlugins(manifest) }, null, 2)}\n`;
   syncProjectSettings(paths, lock.plugins, manifestPlugins(manifest));
   const file = paths.lock;
   if (existsSync(file) && readFileSync(file, "utf8") === text) {

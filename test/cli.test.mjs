@@ -407,6 +407,30 @@ describe("list", () => {
   });
 });
 
+describe("versioned lock", () => {
+  test("install writes lockVersion 1 as the first key", () => {
+    assert.equal(cli(["install"]).status, 0);
+    assert.equal(Object.keys(JSON.parse(read(LOCK)))[0], "lockVersion");
+    assert.equal(JSON.parse(read(LOCK)).lockVersion, 1);
+  });
+
+  test("a lock without lockVersion is read as version 1 and check passes", () => {
+    assert.equal(cli(["install"]).status, 0);
+    const { lockVersion: _version, ...legacy } = JSON.parse(read(LOCK));
+    write(join(repo, LOCK), JSON.stringify(legacy, null, 2));
+    const result = cli(["check"]);
+    assert.equal(result.status, 0, result.output);
+  });
+
+  test("a lock with a newer lockVersion makes check exit 1 asking to upgrade", () => {
+    assert.equal(cli(["install"]).status, 0);
+    write(join(repo, LOCK), JSON.stringify({ ...JSON.parse(read(LOCK)), lockVersion: 2 }));
+    const result = cli(["check"]);
+    assert.equal(result.status, 1);
+    assert.match(result.output, /The lock was written by a newer skills-manager \(lockVersion 2\); upgrade @ramon-sg\/skills-manager\./);
+  });
+});
+
 describe("reconciling the lock with the manifest", () => {
   test("removing a source deletes its skills from disk and the lock", () => {
     assert.equal(cli(["install"]).status, 0);
@@ -415,7 +439,7 @@ describe("reconciling the lock with the manifest", () => {
     assert.equal(result.status, 0, result.output);
     assert.equal(existsSync(join(repo, ".agents/skills/alpha")), false);
     assert.equal(existsSync(join(repo, ".agents/skills/beta")), false);
-    assert.deepEqual(JSON.parse(read(LOCK)), { skills: {}, plugins: [] });
+    assert.deepEqual(JSON.parse(read(LOCK)), { lockVersion: 1, skills: {}, plugins: [] });
     assert.equal(cli(["check"]).status, 0);
   });
 

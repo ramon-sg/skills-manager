@@ -197,19 +197,26 @@ export function installedHash(paths, name) {
   return existsSync(dir) ? hashFiles(walk(dir)) : undefined;
 }
 
+/** Version of the lock format this tool writes; a lock without `lockVersion` is version 1. */
+export const LOCK_VERSION = 1;
+
 /**
  * Reads the lock, or an empty one if it does not exist yet.
  *
  * @param paths - Paths from `resolvePaths`.
- * @returns `{ skills, plugins }`.
- * @throws {Error} If any skill name is not valid.
+ * @returns `{ lockVersion, skills, plugins }`.
+ * @throws {Error} If any skill name is not valid or the lock is from a newer tool.
  */
 export function readLock(paths) {
   const file = paths.lock;
   const lock = existsSync(file) ? readJson(file) : {};
+  const lockVersion = lock.lockVersion ?? LOCK_VERSION;
+  if (lockVersion > LOCK_VERSION) {
+    throw new Error(`The lock was written by a newer skills-manager (lockVersion ${lockVersion}); upgrade @ramon-sg/skills-manager.`);
+  }
   const skills = lock.skills ?? {};
   Object.keys(skills).forEach(assertSkillName);
-  return { skills, plugins: lock.plugins ?? [] };
+  return { lockVersion, skills, plugins: lock.plugins ?? [] };
 }
 
 /**

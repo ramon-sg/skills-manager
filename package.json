@@ -1,0 +1,14 @@
+{
+  "name": "@ramon-sg/skills-manager",
+  "version": "0.0.0",
+  "description": "Manage third-party agent skills vendored in a repository.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Ramón Soto",
+  "bin": { "skills-manager": "src/cli.mjs" },
+  "files": ["src", "skills", "README.md", "LICENSE"],
+  "engines": { "node": ">=20" },
+  "publishConfig": { "access": "public", "provenance": true },
+  "scripts": { "test": "node --test test/lib.test.mjs test/cli.test.mjs test/no-project-names.test.mjs" },
+  "dependencies": { "@clack/prompts": "1.8.1" }
+}

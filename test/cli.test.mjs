@@ -1,9 +1,9 @@
 /**
- * @file Tests del CLI `src/cli.mjs` contra un repo temporal: un
- * origen git local con dos skills, un `SKILLS_HOME` con un marketplace falso
- * que lo apunta por `file://`, y los comandos `install`, `update`, `check`,
- * `list`, `init` y `add`. Sin red: todos los orígenes son repos locales, y el
- * `~/.claude` es siempre el del home falso.
+ * @file Tests for the `src/cli.mjs` CLI against a temporary repo: a local
+ * git origin with two skills, a `SKILLS_HOME` with a fake marketplace that
+ * points to it through `file://`, and the `install`, `update`, `check`,
+ * `list`, `init` and `add` commands. No network: every origin is a local repo,
+ * and `~/.claude` is always the fake home one.
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -13,33 +13,33 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-/** El CLI bajo prueba. */
+/** The CLI under test. */
 const CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "src", "cli.mjs");
 
-/** Configuración de git para commitear sin depender de la del usuario. */
+/** Git configuration to commit without depending on the user's. */
 const GIT_IDENTITY = ["-c", "user.name=Test", "-c", "user.email=test@example.com"];
 
-/** Lock que escribe el CLI, relativo al repo. */
+/** Lock the CLI writes, relative to the repo. */
 const LOCK = ".agents/skills.lock.json";
 
-/** Carpeta temporal de cada test, con el repo, el origen y el home. */
+/** Temporary folder of each test, holding the repo, the origin and the home. */
 let base;
 
-/** Repo donde corre el CLI. */
+/** Repo where the CLI runs. */
 let repo;
 
-/** Repo de origen de las skills. */
+/** Origin repo of the skills. */
 let origin;
 
-/** Home falso con el marketplace. */
+/** Fake home with the marketplace. */
 let home;
 
 /**
- * Corre git en una carpeta y falla el test si termina mal.
+ * Runs git in a folder and fails the test if it exits badly.
  *
- * @param cwd - Carpeta donde corre.
- * @param args - Argumentos de git.
- * @returns La salida estándar, sin espacios al final.
+ * @param cwd - Folder where it runs.
+ * @param args - Git arguments.
+ * @returns The standard output, trimmed.
  */
 function git(cwd, args) {
   const result = spawnSync("git", [...GIT_IDENTITY, ...args], { cwd, encoding: "utf8" });
@@ -48,10 +48,10 @@ function git(cwd, args) {
 }
 
 /**
- * Escribe un archivo creando su carpeta.
+ * Writes a file, creating its folder.
  *
- * @param file - Ruta absoluta.
- * @param content - Contenido.
+ * @param file - Absolute path.
+ * @param content - Content.
  */
 function write(file, content) {
   mkdirSync(dirname(file), { recursive: true });
@@ -59,10 +59,10 @@ function write(file, content) {
 }
 
 /**
- * Commitea todo lo que hay en el origen.
+ * Commits everything in the origin.
  *
- * @param message - Mensaje del commit.
- * @returns El sha del commit nuevo.
+ * @param message - Commit message.
+ * @returns The sha of the new commit.
  */
 function commitOrigin(message) {
   git(origin, ["add", "-A"]);
@@ -71,9 +71,9 @@ function commitOrigin(message) {
 }
 
 /**
- * Escribe el marketplace falso `fake` con el plugin `demo` fijado a un sha.
+ * Writes the fake `fake` marketplace with the `demo` plugin pinned to a sha.
  *
- * @param sha - Commit del origen que publica el marketplace.
+ * @param sha - Origin commit the marketplace publishes.
  */
 function publish(sha) {
   const marketplace = { plugins: [{ name: "demo", source: { source: "url", url: `file://${origin}`, sha } }] };
@@ -81,10 +81,10 @@ function publish(sha) {
 }
 
 /**
- * Corre el CLI en el repo temporal, con el home falso.
+ * Runs the CLI in the temporary repo, with the fake home.
  *
- * @param args - Argumentos del CLI.
- * @returns Código de salida y salida combinada.
+ * @param args - CLI arguments.
+ * @returns Exit code and combined output.
  */
 function cli(args) {
   const env = { ...process.env, SKILLS_HOME: home };
@@ -93,27 +93,27 @@ function cli(args) {
 }
 
 /**
- * Lee un archivo del repo temporal.
+ * Reads a file from the temporary repo.
  *
- * @param file - Ruta relativa al repo.
- * @returns El contenido.
+ * @param file - Path relative to the repo.
+ * @returns The content.
  */
 function read(file) {
   return readFileSync(join(repo, file), "utf8");
 }
 
 /**
- * Reemplaza las fuentes del manifiesto del repo temporal.
+ * Replaces the manifest sources of the temporary repo.
  *
- * @param sources - Fuentes nuevas.
+ * @param sources - New sources.
  */
 function setSources(sources) {
   write(join(repo, ".agents/skills.json"), JSON.stringify({ sources }));
 }
 
 /**
- * Deja en el home falso lo que `init` y `add` descubren: `demo@fake` instalado
- * en el caché de plugins, la skill local `mi-skill` y una carpeta `synced/`.
+ * Leaves in the fake home what `init` and `add` discover: `demo@fake` installed
+ * in the plugin cache, the local skill `my-skill` and a `synced/` folder.
  */
 function installMachine() {
   const installPath = join(home, ".claude/plugins/cache/fake/demo/1.0.0");
@@ -121,53 +121,53 @@ function installMachine() {
   write(join(installPath, "skills/beta/SKILL.md"), "Beta.\n");
   const installed = { version: 2, plugins: { "demo@fake": [{ scope: "user", installPath, version: "1.0.0" }] } };
   write(join(home, ".claude/plugins/installed_plugins.json"), JSON.stringify(installed));
-  write(join(home, ".claude/skills/mi-skill/SKILL.md"), "Mía.\n");
-  write(join(home, ".claude/skills/mi-skill/refs/notas.md"), "Notas.\n");
-  write(join(home, ".claude/skills/synced/otra/SKILL.md"), "Sincronizada.\n");
+  write(join(home, ".claude/skills/my-skill/SKILL.md"), "Mine.\n");
+  write(join(home, ".claude/skills/my-skill/refs/notes.md"), "Notes.\n");
+  write(join(home, ".claude/skills/synced/another/SKILL.md"), "Synced.\n");
 }
 
 /**
- * Lee el manifiesto del repo temporal.
+ * Reads the manifest of the temporary repo.
  *
- * @returns El manifiesto parseado.
+ * @returns The parsed manifest.
  */
 function manifest() {
   return JSON.parse(read(".agents/skills.json"));
 }
 
 /**
- * Escribe el `.claude/settings.json` del repo temporal con formato estable.
+ * Writes the temporary repo's `.claude/settings.json` with a stable format.
  *
- * @param settings - Contenido a escribir.
+ * @param settings - Content to write.
  */
 function writeSettings(settings) {
   write(join(repo, ".claude/settings.json"), `${JSON.stringify(settings, null, 2)}\n`);
 }
 
 /**
- * Lee el `.claude/settings.json` del repo temporal.
+ * Reads the temporary repo's `.claude/settings.json`.
  *
- * @returns El contenido parseado.
+ * @returns The parsed content.
  */
 function settings() {
   return JSON.parse(read(".claude/settings.json"));
 }
 
 /**
- * Dice si un archivo del repo temporal tiene algún bit de ejecución.
+ * Tells whether a file in the temporary repo has any executable bit.
  *
- * @param file - Ruta relativa al repo.
- * @returns `true` si es ejecutable.
+ * @param file - Path relative to the repo.
+ * @returns `true` if it is executable.
  */
 function isExecutable(file) {
   return (statSync(join(repo, file)).mode & 0o111) !== 0;
 }
 
-/** Mensaje de una skill editada a mano: las dos salidas, versión del lock o última publicada. */
+/** Message for a hand-edited skill: both ways out, the lock version or the latest published. */
 const EDITED_ALPHA =
-  /"alpha" se editó a mano: para volver a la versión del lock, rm -rf \.agents\/skills\/alpha && bun run skills:install; para pisarla con la última publicada, bun run skills:update alpha/;
+  /"alpha" was edited by hand: to go back to the lock version, rm -rf \.agents\/skills\/alpha && skills-manager install; to overwrite it with the latest published, skills-manager update alpha/;
 
-/** Commit inicial del origen. */
+/** Initial commit of the origin. */
 let firstSha;
 
 beforeEach(() => {
@@ -180,11 +180,11 @@ beforeEach(() => {
   write(join(repo, ".agents/skills.json"), JSON.stringify({ sources: [{ plugin: "demo@fake" }] }));
   mkdirSync(origin);
   git(origin, ["init", "-q"]);
-  write(join(origin, "skills/alpha/SKILL.md"), "Alpha. Después usá demo:beta y otro:beta.\n");
+  write(join(origin, "skills/alpha/SKILL.md"), "Alpha. Then use demo:beta and other:beta.\n");
   write(join(origin, "skills/beta/SKILL.md"), "Beta.\n");
   write(join(origin, "LICENSE"), "MIT\n");
   write(join(origin, ".claude-plugin/plugin.json"), JSON.stringify({ name: "demo", version: "1.0.0" }));
-  firstSha = commitOrigin("primero");
+  firstSha = commitOrigin("first");
   write(
     join(home, ".claude/plugins/known_marketplaces.json"),
     JSON.stringify({ fake: { source: { source: "git", url: `file://${origin}` } } }),
@@ -198,10 +198,10 @@ afterEach(() => {
 });
 
 describe("install", () => {
-  test("sin lock baja las skills del plugin, reescribe referencias y escribe el lock", () => {
+  test("without a lock it downloads the plugin skills, rewrites references and writes the lock", () => {
     const result = cli(["install"]);
     assert.equal(result.status, 0, result.output);
-    assert.equal(read(".agents/skills/alpha/SKILL.md"), "Alpha. Después usá beta y otro:beta.\n");
+    assert.equal(read(".agents/skills/alpha/SKILL.md"), "Alpha. Then use beta and other:beta.\n");
     assert.equal(read(".agents/skills/beta/SKILL.md"), "Beta.\n");
     assert.equal(read(".agents/skills/beta/LICENSE"), "MIT\n");
     const lock = JSON.parse(read(LOCK));
@@ -213,7 +213,7 @@ describe("install", () => {
     assert.match(lock.skills.beta.hash, /^sha256-[0-9a-f]{64}$/);
   });
 
-  test("un segundo install no cambia nada", () => {
+  test("a second install changes nothing", () => {
     assert.equal(cli(["install"]).status, 0);
     const before = statSync(join(repo, LOCK)).mtimeMs;
     const result = cli(["install"]);
@@ -221,42 +221,42 @@ describe("install", () => {
     assert.equal(statSync(join(repo, LOCK)).mtimeMs, before);
   });
 
-  test("baja al commit del lock aunque el marketplace publique otro", () => {
+  test("installs the lock commit even if the marketplace publishes another", () => {
     assert.equal(cli(["install"]).status, 0);
     write(join(origin, "skills/beta/SKILL.md"), "Beta 2.\n");
-    publish(commitOrigin("segundo"));
+    publish(commitOrigin("second"));
     rmSync(join(repo, ".agents/skills/beta"), { recursive: true });
     const result = cli(["install"]);
     assert.equal(result.status, 0, result.output);
     assert.equal(read(".agents/skills/beta/SKILL.md"), "Beta.\n");
   });
 
-  test("una skill editada a mano hace fallar check e install", () => {
+  test("a hand-edited skill makes check and install fail", () => {
     assert.equal(cli(["install"]).status, 0);
-    write(join(repo, ".agents/skills/alpha/SKILL.md"), "editada\n");
+    write(join(repo, ".agents/skills/alpha/SKILL.md"), "edited\n");
     const check = cli(["check"]);
     assert.equal(check.status, 1);
     assert.match(check.output, /alpha/);
     const install = cli(["install"]);
     assert.equal(install.status, 1);
     assert.match(install.output, EDITED_ALPHA);
-    assert.equal(read(".agents/skills/alpha/SKILL.md"), "editada\n");
+    assert.equal(read(".agents/skills/alpha/SKILL.md"), "edited\n");
   });
 
-  test("borrar la skill editada e install la rearma al commit del lock, no a la última", () => {
+  test("deleting the edited skill and running install rebuilds it at the lock commit, not the latest", () => {
     assert.equal(cli(["install"]).status, 0);
-    write(join(repo, ".agents/skills/alpha/SKILL.md"), "editada\n");
+    write(join(repo, ".agents/skills/alpha/SKILL.md"), "edited\n");
     write(join(origin, "skills/alpha/SKILL.md"), "Alpha 2.\n");
-    publish(commitOrigin("segundo"));
+    publish(commitOrigin("second"));
     rmSync(join(repo, ".agents/skills/alpha"), { recursive: true });
     const result = cli(["install"]);
     assert.equal(result.status, 0, result.output);
-    assert.equal(read(".agents/skills/alpha/SKILL.md"), "Alpha. Después usá beta y otro:beta.\n");
+    assert.equal(read(".agents/skills/alpha/SKILL.md"), "Alpha. Then use beta and other:beta.\n");
     assert.equal(cli(["check"]).status, 0);
   });
 
-  test("conserva el bit de ejecución y check detecta si se pierde", () => {
-    write(join(origin, "skills/beta/run.sh"), "#!/bin/sh\necho hola\n");
+  test("keeps the executable bit and check detects if it is lost", () => {
+    write(join(origin, "skills/beta/run.sh"), "#!/bin/sh\necho hello\n");
     chmodSync(join(origin, "skills/beta/run.sh"), 0o755);
     publish(commitOrigin("script"));
     const result = cli(["install"]);
@@ -267,19 +267,19 @@ describe("install", () => {
     chmodSync(join(repo, ".agents/skills/beta/run.sh"), 0o644);
     const check = cli(["check"]);
     assert.equal(check.status, 1);
-    assert.match(check.output, /editadas a mano: beta/);
+    assert.match(check.output, /edited by hand: beta/);
   });
 
-  test("una skill de terceros con el nombre de una propia corta con excluí", () => {
-    write(join(repo, ".agents/skills/alpha/SKILL.md"), "propia\n");
+  test("a third-party skill named like an own one stops with exclude", () => {
+    write(join(repo, ".agents/skills/alpha/SKILL.md"), "own\n");
     const result = cli(["install"]);
     assert.equal(result.status, 1);
-    assert.match(result.output, /excluí "alpha"/);
-    assert.equal(read(".agents/skills/alpha/SKILL.md"), "propia\n");
+    assert.match(result.output, /exclude "alpha"/);
+    assert.equal(read(".agents/skills/alpha/SKILL.md"), "own\n");
     assert.equal(existsSync(join(repo, LOCK)), false);
   });
 
-  test("respeta la lista de skills del manifiesto", () => {
+  test("honors the manifest skills list", () => {
     write(join(repo, ".agents/skills.json"), JSON.stringify({ sources: [{ plugin: "demo@fake", skills: ["beta"] }] }));
     assert.equal(cli(["install"]).status, 0);
     assert.equal(existsSync(join(repo, ".agents/skills/alpha")), false);
@@ -287,8 +287,8 @@ describe("install", () => {
   });
 });
 
-describe("plugins desactivados en el proyecto", () => {
-  test("install desactiva el plugin y conserva el resto de settings.json", () => {
+describe("plugins disabled in the project", () => {
+  test("install disables the plugin and keeps the rest of settings.json", () => {
     assert.equal(cli(["install"]).status, 0);
     const current = settings();
     assert.equal(current.enabledPlugins["demo@fake"], false);
@@ -296,7 +296,7 @@ describe("plugins desactivados en el proyecto", () => {
     assert.match(read(".claude/settings.json"), /\n$/);
   });
 
-  test("sacar la fuente del manifiesto quita la clave y el objeto vacío", () => {
+  test("removing the source from the manifest drops the key and the empty object", () => {
     assert.equal(cli(["install"]).status, 0);
     setSources([]);
     assert.equal(cli(["install"]).status, 0);
@@ -304,15 +304,15 @@ describe("plugins desactivados en el proyecto", () => {
     assert.ok(settings().hooks);
   });
 
-  test("no toca lo que la herramienta no puso", () => {
-    writeSettings({ enabledPlugins: { "mano@x": true, "otro@y": false } });
+  test("does not touch what the tool did not put there", () => {
+    writeSettings({ enabledPlugins: { "hand@x": true, "other@y": false } });
     assert.equal(cli(["install"]).status, 0);
     setSources([]);
     assert.equal(cli(["install"]).status, 0);
-    assert.deepEqual(settings(), { enabledPlugins: { "mano@x": true, "otro@y": false } });
+    assert.deepEqual(settings(), { enabledPlugins: { "hand@x": true, "other@y": false } });
   });
 
-  test("sin settings.json lo crea; sin plugins no lo crea", () => {
+  test("without settings.json it creates it; without plugins it does not", () => {
     rmSync(join(repo, ".claude"), { recursive: true });
     assert.equal(cli(["install"]).status, 0);
     assert.deepEqual(settings(), { enabledPlugins: { "demo@fake": false } });
@@ -322,26 +322,26 @@ describe("plugins desactivados en el proyecto", () => {
     assert.equal(existsSync(join(repo, ".claude/settings.json")), false);
   });
 
-  test("init y add también lo dejan escrito", () => {
+  test("init and add also leave it written", () => {
     installMachine();
     setSources([]);
     assert.equal(cli(["add", "--select", "demo@fake"]).status, 0);
     assert.equal(settings().enabledPlugins["demo@fake"], false);
   });
 
-  test("--dry-run no escribe settings.json", () => {
+  test("--dry-run does not write settings.json", () => {
     assert.equal(cli(["update", "--dry-run"]).status, 0);
     assert.equal("enabledPlugins" in settings(), false);
   });
 });
 
 describe("check", () => {
-  test("sin manifiesto sale con 0", () => {
+  test("without a manifest it exits with 0", () => {
     rmSync(join(repo, ".agents/skills.json"));
     assert.equal(cli(["check"]).status, 0);
   });
 
-  test("después de install sale con 0; si falta una skill, con 1", () => {
+  test("after install it exits with 0; if a skill is missing, with 1", () => {
     assert.equal(cli(["install"]).status, 0);
     assert.equal(cli(["check"]).status, 0);
     rmSync(join(repo, ".agents/skills/beta"), { recursive: true });
@@ -352,10 +352,10 @@ describe("check", () => {
 });
 
 describe("update", () => {
-  test("--dry-run imprime el cambio de commit sin tocar archivos; update lo aplica", () => {
+  test("--dry-run prints the commit change without touching files; update applies it", () => {
     assert.equal(cli(["install"]).status, 0);
     write(join(origin, "skills/alpha/SKILL.md"), "Alpha 2.\n");
-    const newSha = commitOrigin("segundo");
+    const newSha = commitOrigin("second");
     publish(newSha);
     const lockBefore = read(LOCK);
 
@@ -363,7 +363,7 @@ describe("update", () => {
     assert.equal(dry.status, 0, dry.output);
     assert.match(dry.output, new RegExp(`alpha: ${firstSha.slice(0, 7)} → ${newSha.slice(0, 7)}`));
     assert.equal(read(LOCK), lockBefore);
-    assert.equal(read(".agents/skills/alpha/SKILL.md"), "Alpha. Después usá beta y otro:beta.\n");
+    assert.equal(read(".agents/skills/alpha/SKILL.md"), "Alpha. Then use beta and other:beta.\n");
 
     const real = cli(["update"]);
     assert.equal(real.status, 0, real.output);
@@ -373,30 +373,30 @@ describe("update", () => {
     assert.equal(cli(["check"]).status, 0);
   });
 
-  test("update <nombre> pisa una skill editada a mano", () => {
+  test("update <name> overwrites a hand-edited skill", () => {
     assert.equal(cli(["install"]).status, 0);
-    write(join(repo, ".agents/skills/alpha/SKILL.md"), "editada\n");
+    write(join(repo, ".agents/skills/alpha/SKILL.md"), "edited\n");
     const result = cli(["update", "alpha"]);
     assert.equal(result.status, 0, result.output);
-    assert.equal(read(".agents/skills/alpha/SKILL.md"), "Alpha. Después usá beta y otro:beta.\n");
+    assert.equal(read(".agents/skills/alpha/SKILL.md"), "Alpha. Then use beta and other:beta.\n");
   });
 });
 
 describe("list", () => {
-  test("muestra cada skill con su origen y avisa si hay versión nueva", () => {
+  test("shows each skill with its origin and reports if there is a newer version", () => {
     assert.equal(cli(["install"]).status, 0);
     const same = cli(["list"]);
     assert.equal(same.status, 0, same.output);
     assert.match(same.output, new RegExp(`alpha\\s+demo@fake\\s+1\\.0\\.0 \\(${firstSha.slice(0, 7)}\\)`));
-    assert.doesNotMatch(same.output, /hay versión nueva/);
+    assert.doesNotMatch(same.output, /newer version available/);
     write(join(origin, "skills/alpha/SKILL.md"), "Alpha 2.\n");
-    publish(commitOrigin("segundo"));
-    assert.match(cli(["list"]).output, /alpha.*\(hay versión nueva\)/);
+    publish(commitOrigin("second"));
+    assert.match(cli(["list"]).output, /alpha.*\(newer version available\)/);
   });
 });
 
-describe("reconciliación del lock con el manifiesto", () => {
-  test("quitar una fuente borra sus skills del disco y del lock", () => {
+describe("reconciling the lock with the manifest", () => {
+  test("removing a source deletes its skills from disk and the lock", () => {
     assert.equal(cli(["install"]).status, 0);
     setSources([]);
     const result = cli(["install"]);
@@ -407,27 +407,27 @@ describe("reconciliación del lock con el manifiesto", () => {
     assert.equal(cli(["check"]).status, 0);
   });
 
-  test("quitar una fuente con una skill editada a mano corta sin borrar", () => {
+  test("removing a source with a hand-edited skill stops without deleting", () => {
     assert.equal(cli(["install"]).status, 0);
-    write(join(repo, ".agents/skills/alpha/SKILL.md"), "editada\n");
+    write(join(repo, ".agents/skills/alpha/SKILL.md"), "edited\n");
     setSources([]);
     const result = cli(["install"]);
     assert.equal(result.status, 1);
     assert.match(result.output, EDITED_ALPHA);
-    assert.equal(read(".agents/skills/alpha/SKILL.md"), "editada\n");
+    assert.equal(read(".agents/skills/alpha/SKILL.md"), "edited\n");
     assert.equal(existsSync(join(repo, ".agents/skills/beta")), true);
   });
 
-  test("cambiar la lista de skills reconstruye la fuente al commit del lock", () => {
+  test("changing the skills list rebuilds the source at the lock commit", () => {
     setSources([{ plugin: "demo@fake", skills: ["beta"] }]);
     assert.equal(cli(["install"]).status, 0);
     write(join(origin, "skills/alpha/SKILL.md"), "Alpha 2.\n");
-    publish(commitOrigin("segundo"));
+    publish(commitOrigin("second"));
 
     setSources([{ plugin: "demo@fake", skills: ["alpha", "beta"] }]);
     const added = cli(["install"]);
     assert.equal(added.status, 0, added.output);
-    assert.equal(read(".agents/skills/alpha/SKILL.md"), "Alpha. Después usá beta y otro:beta.\n");
+    assert.equal(read(".agents/skills/alpha/SKILL.md"), "Alpha. Then use beta and other:beta.\n");
     assert.equal(JSON.parse(read(LOCK)).skills.alpha.commit, firstSha);
 
     setSources([{ plugin: "demo@fake", skills: ["alpha"] }]);
@@ -438,7 +438,7 @@ describe("reconciliación del lock con el manifiesto", () => {
     assert.equal(cli(["check"]).status, 0);
   });
 
-  test("check falla si una fuente del manifiesto no está en el lock", () => {
+  test("check fails if a manifest source is not in the lock", () => {
     assert.equal(cli(["install"]).status, 0);
     setSources([{ plugin: "demo@fake" }, { repo: `file://${origin}`, path: "skills/beta" }]);
     const result = cli(["check"]);
@@ -446,7 +446,7 @@ describe("reconciliación del lock con el manifiesto", () => {
     assert.match(result.output, new RegExp(`file://${origin}/skills/beta`));
   });
 
-  test("check falla si el lock tiene skills de una fuente que ya no está", () => {
+  test("check fails if the lock has skills from a source that is gone", () => {
     assert.equal(cli(["install"]).status, 0);
     setSources([]);
     const result = cli(["check"]);
@@ -454,7 +454,7 @@ describe("reconciliación del lock con el manifiesto", () => {
     assert.match(result.output, /alpha/);
   });
 
-  test("check falla si plugins del lock no coincide con el manifiesto", () => {
+  test("check fails if the lock plugins do not match the manifest", () => {
     assert.equal(cli(["install"]).status, 0);
     const lock = JSON.parse(read(LOCK));
     write(join(repo, LOCK), JSON.stringify({ ...lock, plugins: [] }));
@@ -463,7 +463,7 @@ describe("reconciliación del lock con el manifiesto", () => {
     assert.match(result.output, /plugins/);
   });
 
-  test("check falla si la lista de skills del manifiesto no coincide con el lock", () => {
+  test("check fails if the manifest skills list does not match the lock", () => {
     assert.equal(cli(["install"]).status, 0);
     setSources([{ plugin: "demo@fake", skills: ["alpha"] }]);
     const result = cli(["check"]);
@@ -473,58 +473,58 @@ describe("reconciliación del lock con el manifiesto", () => {
 });
 
 describe("update --dry-run", () => {
-  test("avisa las skills que aparecen y desaparecen en el origen", () => {
+  test("reports the skills that appear and disappear in the origin", () => {
     assert.equal(cli(["install"]).status, 0);
     rmSync(join(origin, "skills/beta"), { recursive: true });
     write(join(origin, "skills/gamma/SKILL.md"), "Gamma.\n");
-    publish(commitOrigin("segundo"));
+    publish(commitOrigin("second"));
     const lockBefore = read(LOCK);
     const result = cli(["update", "--dry-run"]);
     assert.equal(result.status, 0, result.output);
-    assert.match(result.output, /gamma: nueva/);
-    assert.match(result.output, /beta: se quita/);
+    assert.match(result.output, /gamma: new/);
+    assert.match(result.output, /beta: will be removed/);
     assert.equal(read(LOCK), lockBefore);
     assert.equal(existsSync(join(repo, ".agents/skills/gamma")), false);
     assert.equal(existsSync(join(repo, ".agents/skills/beta")), true);
   });
 
-  test("avisa cada skill editada a mano que el update va a pisar", () => {
+  test("reports each hand-edited skill that update will overwrite", () => {
     assert.equal(cli(["install"]).status, 0);
-    write(join(repo, ".agents/skills/alpha/SKILL.md"), "editada\n");
+    write(join(repo, ".agents/skills/alpha/SKILL.md"), "edited\n");
     const result = cli(["update", "--dry-run"]);
     assert.equal(result.status, 0, result.output);
-    assert.match(result.output, /alpha: editada a mano, se pisa/);
-    assert.doesNotMatch(result.output, /beta: editada a mano/);
-    assert.equal(read(".agents/skills/alpha/SKILL.md"), "editada\n");
+    assert.match(result.output, /alpha: edited by hand, will be overwritten/);
+    assert.doesNotMatch(result.output, /beta: edited by hand/);
+    assert.equal(read(".agents/skills/alpha/SKILL.md"), "edited\n");
   });
 });
 
-describe("seguridad", () => {
-  test("rechaza repos que no son https:// ni file://", () => {
+describe("security", () => {
+  test("rejects repos that are neither https:// nor file://", () => {
     setSources([{ repo: "ext::sh -c id", path: "skills/beta" }]);
     const result = cli(["install"]);
     assert.equal(result.status, 1);
-    assert.match(result.output, /https:\/\/ o file:\/\//);
+    assert.match(result.output, /https:\/\/ or file:\/\//);
   });
 
-  test("rechaza un sha del marketplace que no es un sha completo", () => {
+  test("rejects a marketplace sha that is not a full sha", () => {
     publish("--upload-pack=id");
     const result = cli(["install"]);
     assert.equal(result.status, 1);
     assert.match(result.output, /sha/);
   });
 
-  test("rechaza rutas con .. o absolutas", () => {
+  test("rejects paths with .. or absolute ones", () => {
     setSources([{ repo: `file://${origin}`, path: "../outside" }]);
     const parent = cli(["install"]);
     assert.equal(parent.status, 1);
-    assert.match(parent.output, /ruta/);
+    assert.match(parent.output, /path/);
     setSources([{ repo: `file://${origin}`, path: "/etc" }]);
-    assert.match(cli(["install"]).output, /ruta/);
+    assert.match(cli(["install"]).output, /path/);
   });
 
-  test("una skill con un symlink hace fallar install y no copia nada", () => {
-    write(join(base, "secret.txt"), "secreto\n");
+  test("a skill with a symlink makes install fail and copies nothing", () => {
+    write(join(base, "secret.txt"), "secret\n");
     symlinkSync(join(base, "secret.txt"), join(origin, "skills/beta/secret.txt"));
     publish(commitOrigin("symlink"));
     const result = cli(["install"]);
@@ -534,49 +534,49 @@ describe("seguridad", () => {
     assert.equal(existsSync(join(repo, LOCK)), false);
   });
 
-  test("una carpeta de skill que es un symlink fuera del origen hace fallar install", () => {
+  test("a skill folder that is a symlink outside the origin makes install fail", () => {
     mkdirSync(join(base, "outside"));
-    write(join(base, "outside/SKILL.md"), "afuera\n");
+    write(join(base, "outside/SKILL.md"), "outside\n");
     symlinkSync(join(base, "outside"), join(origin, "skills/gamma"));
-    publish(commitOrigin("symlink de carpeta"));
+    publish(commitOrigin("folder symlink"));
     const result = cli(["install"]);
     assert.equal(result.status, 1);
-    assert.match(result.output, /symlink|sale del repo/);
+    assert.match(result.output, /symlink|escapes/);
     assert.equal(existsSync(join(repo, ".agents/skills/gamma")), false);
   });
 });
 
-describe("init y add", () => {
-  test("init --select instala el plugin; un segundo init sugiere skills:add", () => {
+describe("init and add", () => {
+  test("init --select installs the plugin; a second init suggests skills-manager add", () => {
     installMachine();
     rmSync(join(repo, ".agents/skills.json"));
     const result = cli(["init", "--select", "demo@fake"]);
     assert.equal(result.status, 0, result.output);
     assert.deepEqual(manifest(), { sources: [{ plugin: "demo@fake" }] });
-    assert.equal(read(".agents/skills/alpha/SKILL.md"), "Alpha. Después usá beta y otro:beta.\n");
+    assert.equal(read(".agents/skills/alpha/SKILL.md"), "Alpha. Then use beta and other:beta.\n");
     assert.equal(JSON.parse(read(LOCK)).skills.beta.commit, firstSha);
     const again = cli(["init", "--select", "demo@fake"]);
     assert.equal(again.status, 1);
-    assert.match(again.output, /ya existe; usá skills:add/);
+    assert.match(again.output, /already exists; use skills-manager add/);
   });
 
-  test("add --candidates no lista lo que ya está en el manifiesto ni synced/", () => {
+  test("add --candidates does not list what is already in the manifest nor synced/", () => {
     installMachine();
     rmSync(join(repo, ".agents/skills.json"));
     assert.equal(cli(["init", "--select", "demo@fake"]).status, 0);
     const result = cli(["add", "--candidates"]);
     assert.equal(result.status, 0, result.output);
-    assert.deepEqual(JSON.parse(result.output), [{ id: "mi-skill", kind: "local", skills: ["mi-skill"] }]);
+    assert.deepEqual(JSON.parse(result.output), [{ id: "my-skill", kind: "local", skills: ["my-skill"] }]);
   });
 
-  test("add --select de una local la copia y la fija en el lock sin repo ni commit", () => {
+  test("add --select of a local copies it and pins it in the lock without repo or commit", () => {
     installMachine();
-    const result = cli(["add", "--select", "mi-skill"]);
+    const result = cli(["add", "--select", "my-skill"]);
     assert.equal(result.status, 0, result.output);
-    assert.deepEqual(manifest().sources, [{ plugin: "demo@fake" }, { local: "mi-skill" }]);
-    assert.equal(read(".agents/skills/mi-skill/SKILL.md"), "Mía.\n");
-    assert.equal(read(".agents/skills/mi-skill/refs/notas.md"), "Notas.\n");
-    const entry = JSON.parse(read(LOCK)).skills["mi-skill"];
+    assert.deepEqual(manifest().sources, [{ plugin: "demo@fake" }, { local: "my-skill" }]);
+    assert.equal(read(".agents/skills/my-skill/SKILL.md"), "Mine.\n");
+    assert.equal(read(".agents/skills/my-skill/refs/notes.md"), "Notes.\n");
+    const entry = JSON.parse(read(LOCK)).skills["my-skill"];
     assert.equal(entry.source, "local");
     assert.equal(entry.repo, undefined);
     assert.equal(entry.commit, undefined);
@@ -584,108 +584,108 @@ describe("init y add", () => {
     assert.equal(cli(["check"]).status, 0);
   });
 
-  test("una local copiada es propia: editarla no hace fallar check ni install, e install no la pisa", () => {
+  test("a copied local is the repo's own: editing it does not make check or install fail, and install does not overwrite it", () => {
     installMachine();
-    assert.equal(cli(["add", "--select", "mi-skill"]).status, 0);
-    write(join(repo, ".agents/skills/mi-skill/SKILL.md"), "editada\n");
+    assert.equal(cli(["add", "--select", "my-skill"]).status, 0);
+    write(join(repo, ".agents/skills/my-skill/SKILL.md"), "edited\n");
     const check = cli(["check"]);
     assert.equal(check.status, 0, check.output);
     const install = cli(["install"]);
     assert.equal(install.status, 0, install.output);
-    assert.equal(read(".agents/skills/mi-skill/SKILL.md"), "editada\n");
+    assert.equal(read(".agents/skills/my-skill/SKILL.md"), "edited\n");
     const update = cli(["update"]);
     assert.equal(update.status, 0, update.output);
-    assert.equal(read(".agents/skills/mi-skill/SKILL.md"), "editada\n");
+    assert.equal(read(".agents/skills/my-skill/SKILL.md"), "edited\n");
   });
 
-  test("una local que falta en disco se copia de nuevo; update <local> la vuelve a copiar", () => {
+  test("a local missing on disk is copied again; update <local> copies it again", () => {
     installMachine();
-    assert.equal(cli(["add", "--select", "mi-skill"]).status, 0);
-    rmSync(join(repo, ".agents/skills/mi-skill"), { recursive: true });
+    assert.equal(cli(["add", "--select", "my-skill"]).status, 0);
+    rmSync(join(repo, ".agents/skills/my-skill"), { recursive: true });
     assert.equal(cli(["check"]).status, 1);
     assert.equal(cli(["install"]).status, 0);
-    assert.equal(read(".agents/skills/mi-skill/SKILL.md"), "Mía.\n");
-    write(join(repo, ".agents/skills/mi-skill/SKILL.md"), "editada\n");
-    write(join(home, ".claude/skills/mi-skill/SKILL.md"), "Mía 2.\n");
-    const dry = cli(["update", "mi-skill", "--dry-run"]);
+    assert.equal(read(".agents/skills/my-skill/SKILL.md"), "Mine.\n");
+    write(join(repo, ".agents/skills/my-skill/SKILL.md"), "edited\n");
+    write(join(home, ".claude/skills/my-skill/SKILL.md"), "Mine 2.\n");
+    const dry = cli(["update", "my-skill", "--dry-run"]);
     assert.equal(dry.status, 0, dry.output);
-    assert.match(dry.output, /mi-skill: editada a mano, se pisa/);
-    const result = cli(["update", "mi-skill"]);
+    assert.match(dry.output, /my-skill: edited by hand, will be overwritten/);
+    const result = cli(["update", "my-skill"]);
     assert.equal(result.status, 0, result.output);
-    assert.equal(read(".agents/skills/mi-skill/SKILL.md"), "Mía 2.\n");
+    assert.equal(read(".agents/skills/my-skill/SKILL.md"), "Mine 2.\n");
   });
 
-  test("una local conserva el bit de ejecución", () => {
+  test("a local keeps the executable bit", () => {
     installMachine();
-    write(join(home, ".claude/skills/mi-skill/bin/run.sh"), "#!/bin/sh\n");
-    chmodSync(join(home, ".claude/skills/mi-skill/bin/run.sh"), 0o755);
-    assert.equal(cli(["add", "--select", "mi-skill"]).status, 0);
-    assert.equal(isExecutable(".agents/skills/mi-skill/bin/run.sh"), true);
-    assert.equal(isExecutable(".agents/skills/mi-skill/SKILL.md"), false);
+    write(join(home, ".claude/skills/my-skill/bin/run.sh"), "#!/bin/sh\n");
+    chmodSync(join(home, ".claude/skills/my-skill/bin/run.sh"), 0o755);
+    assert.equal(cli(["add", "--select", "my-skill"]).status, 0);
+    assert.equal(isExecutable(".agents/skills/my-skill/bin/run.sh"), true);
+    assert.equal(isExecutable(".agents/skills/my-skill/SKILL.md"), false);
   });
 
-  test("update no toca las locales aunque cambien en ~/.claude/skills", () => {
+  test("update does not touch locals even if they change in ~/.claude/skills", () => {
     installMachine();
-    assert.equal(cli(["add", "--select", "mi-skill"]).status, 0);
-    write(join(home, ".claude/skills/mi-skill/SKILL.md"), "Mía 2.\n");
+    assert.equal(cli(["add", "--select", "my-skill"]).status, 0);
+    write(join(home, ".claude/skills/my-skill/SKILL.md"), "Mine 2.\n");
     const result = cli(["update"]);
     assert.equal(result.status, 0, result.output);
-    assert.equal(read(".agents/skills/mi-skill/SKILL.md"), "Mía.\n");
+    assert.equal(read(".agents/skills/my-skill/SKILL.md"), "Mine.\n");
     assert.equal(cli(["check"]).status, 0);
   });
 
-  test("quitar una local del manifiesto la borra del disco y del lock", () => {
+  test("removing a local from the manifest deletes it from disk and the lock", () => {
     installMachine();
-    assert.equal(cli(["add", "--select", "mi-skill"]).status, 0);
+    assert.equal(cli(["add", "--select", "my-skill"]).status, 0);
     setSources([{ plugin: "demo@fake" }]);
     assert.equal(cli(["install"]).status, 0);
-    assert.equal(existsSync(join(repo, ".agents/skills/mi-skill")), false);
-    assert.equal(Object.hasOwn(JSON.parse(read(LOCK)).skills, "mi-skill"), false);
+    assert.equal(existsSync(join(repo, ".agents/skills/my-skill")), false);
+    assert.equal(Object.hasOwn(JSON.parse(read(LOCK)).skills, "my-skill"), false);
   });
 
-  test("si install falla, add deja el manifiesto como estaba", () => {
+  test("if install fails, add leaves the manifest as it was", () => {
     installMachine();
-    write(join(repo, ".agents/skills/mi-skill/SKILL.md"), "propia\n");
-    const result = cli(["add", "--select", "mi-skill"]);
+    write(join(repo, ".agents/skills/my-skill/SKILL.md"), "own\n");
+    const result = cli(["add", "--select", "my-skill"]);
     assert.equal(result.status, 1);
-    assert.match(result.output, /excluí "mi-skill"/);
+    assert.match(result.output, /exclude "my-skill"/);
     assert.deepEqual(manifest(), { sources: [{ plugin: "demo@fake" }] });
   });
 
-  test("add --select rechaza lo que no está entre los candidatos", () => {
+  test("add --select rejects what is not among the candidates", () => {
     installMachine();
-    const result = cli(["add", "--select", "nada@fake"]);
+    const result = cli(["add", "--select", "nothing@fake"]);
     assert.equal(result.status, 1);
-    assert.match(result.output, /nada@fake/);
+    assert.match(result.output, /nothing@fake/);
     assert.deepEqual(manifest(), { sources: [{ plugin: "demo@fake" }] });
   });
 
-  test("un plugin de un marketplace que no se puede leer sale con nota y no se puede elegir", () => {
+  test("a plugin from an unreadable marketplace shows with a note and cannot be picked", () => {
     installMachine();
-    const installPath = join(home, ".claude/plugins/cache/roto/otro/1.0.0");
+    const installPath = join(home, ".claude/plugins/cache/broken/other/1.0.0");
     write(join(installPath, "skills/gamma/SKILL.md"), "Gamma.\n");
     const file = join(home, ".claude/plugins/installed_plugins.json");
     const installed = JSON.parse(readFileSync(file, "utf8"));
-    installed.plugins["otro@roto"] = [{ scope: "user", installPath }];
+    installed.plugins["other@broken"] = [{ scope: "user", installPath }];
     write(file, JSON.stringify(installed));
-    write(join(home, ".claude/plugins/marketplaces/fake/.claude-plugin/marketplace.json"), "{ roto");
+    write(join(home, ".claude/plugins/marketplaces/fake/.claude-plugin/marketplace.json"), "{ broken");
     const result = cli(["add", "--candidates"]);
     assert.equal(result.status, 0, result.output);
     const candidates = JSON.parse(result.output);
-    assert.equal(candidates.find((candidate) => candidate.id === "otro@roto").note, "no pude leer el marketplace roto");
-    assert.ok(candidates.some((candidate) => candidate.id === "mi-skill"));
-    const select = cli(["add", "--select", "otro@roto"]);
+    assert.equal(candidates.find((candidate) => candidate.id === "other@broken").note, "could not read marketplace broken");
+    assert.ok(candidates.some((candidate) => candidate.id === "my-skill"));
+    const select = cli(["add", "--select", "other@broken"]);
     assert.equal(select.status, 1);
-    assert.match(select.output, /no pude leer el marketplace roto/);
+    assert.match(select.output, /could not read marketplace broken/);
   });
 
-  test("sin installed_plugins.json, --candidates imprime [] y sale con 0", () => {
+  test("without installed_plugins.json, --candidates prints [] and exits with 0", () => {
     const result = cli(["add", "--candidates"]);
     assert.equal(result.status, 0, result.output);
     assert.deepEqual(JSON.parse(result.output), []);
   });
 
-  test("sin TTY y sin --candidates ni --select sale con 2 y dice cómo usarlo", () => {
+  test("without a TTY and without --candidates or --select it exits with 2 and says how to use it", () => {
     const result = cli(["add"]);
     assert.equal(result.status, 2);
     assert.match(result.output, /--select/);

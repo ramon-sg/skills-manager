@@ -1,21 +1,21 @@
 #!/usr/bin/env node
 /**
- * @file CLI de las skills de terceros que viven copiadas en `.agents/skills/`:
+ * @file CLI for the third-party skills vendored in `.agents/skills/`:
  *
- *   bun run skills:install              reconcilia disco y lock con el manifiesto
- *   bun run skills:update [nombre]      pasa al último publicado; --dry-run solo imprime
- *   bun run skills:check                falla si disco, lock y manifiesto no coinciden
- *   bun run skills:list                 lo del lock, con origen, versión y si hay nueva
- *   bun run skills:init | skills:add    elige de lo instalado en la máquina y lo instala
- *                                       (--candidates lista en JSON; --select elige sin preguntar)
+ *   skills-manager install              reconcile disk and lock with the manifest
+ *   skills-manager update [name]        move to the latest published; --dry-run only prints
+ *   skills-manager check                fail if disk, lock and manifest do not match
+ *   skills-manager list                 what is in the lock, with origin, version and whether a newer one exists
+ *   skills-manager init | add           pick from what is installed on the machine and install it
+ *                                       (--candidates lists as JSON; --select picks without asking)
  *
- * El manifiesto (`.agents/skills.json`) dice qué se quiere; el lock
- * (`.agents/skills.lock.json`) fija commit y hash de cada skill. Los plugins se
- * resuelven con los marketplaces de `~/.claude/plugins` y las locales se copian
- * de `~/.claude/skills` (`SKILLS_HOME` pisa el home, para los tests). Todo lo
- * que viene de datos (repos, shas, rutas) se valida antes de llegar a git o al
- * disco (`git.mjs`). Las funciones puras viven en `lib.mjs`, el estado del repo
- * en `state.mjs` y la elección de `init` / `add` en `pick.mjs`.
+ * The manifest (`.agents/skills.json`) says what is wanted; the lock
+ * (`.agents/skills.lock.json`) pins the commit and hash of each skill. Plugins
+ * are resolved with the marketplaces in `~/.claude/plugins` and locals are
+ * copied from `~/.claude/skills` (`SKILLS_HOME` overrides the home, for tests).
+ * Everything that comes from data (repos, shas, paths) is validated before it
+ * reaches git or the disk (`git.mjs`). Pure functions live in `lib.mjs`, repo
+ * state in `state.mjs` and the `init` / `add` pick in `pick.mjs`.
  */
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -50,25 +50,25 @@ import {
 export { fetchSource } from "./git.mjs";
 export { loadMarketplaces } from "./state.mjs";
 
-/** Licencia que se copia del origen a cada skill. */
+/** License copied from the origin into each skill. */
 const LICENSE = "LICENSE";
 
-/** Largo del sha abreviado que se imprime. */
+/** Length of the abbreviated sha that gets printed. */
 const SHORT_SHA = 7;
 
-/** Modo con el que se escribe un archivo que en el origen es ejecutable. */
+/** Mode used to write a file that is executable in the origin. */
 const EXECUTABLE_MODE = 0o755;
 
-/** Atajo `dueño/repo` de GitHub en las fuentes `repo`. */
+/** GitHub `owner/repo` shorthand in `repo` sources. */
 const GITHUB_SHORTHAND = /^[\w.-]+\/[\w.-]+$/;
 
 /**
- * Resuelve dónde está publicada una fuente: repo, ref o sha, y ruta.
+ * Resolves where a source is published: repo, ref or sha, and path.
  *
- * @param entry - Fuente `plugin` o `repo` del manifiesto.
- * @param marketplaces - Lo que devuelve `loadMarketplaces`.
- * @returns `{ repo, ref?, sha?, path, plugin? }`; `plugin` solo en las de marketplace.
- * @throws {Error} Si el marketplace o el plugin no están, o el repo o la ruta no son válidos.
+ * @param entry - `plugin` or `repo` source of the manifest.
+ * @param marketplaces - What `loadMarketplaces` returns.
+ * @returns `{ repo, ref?, sha?, path, plugin? }`; `plugin` only for marketplace ones.
+ * @throws {Error} If the marketplace or plugin are missing, or the repo or path are not valid.
  */
 function describeSource(entry, marketplaces) {
   if (entry.repo !== undefined) {
@@ -79,50 +79,50 @@ function describeSource(entry, marketplaces) {
   const marketplace = marketplaces.get(marketplaceName);
   const pluginEntry = marketplace?.plugins.find((candidate) => candidate.name === plugin);
   if (pluginEntry === undefined) {
-    throw new Error(`No encuentro ${entry.plugin} en los marketplaces de esta máquina (~/.claude/plugins).`);
+    throw new Error(`Cannot find ${entry.plugin} in this machine's marketplaces (~/.claude/plugins).`);
   }
   const resolved = resolvePluginSource(pluginEntry, marketplace.repo);
   return { ...resolved, repo: assertRepo(resolved.repo), path: assertRelPath(resolved.path), plugin };
 }
 
 /**
- * Dice si una skill instalada no tiene el hash del lock. Una que no está en
- * disco no cuenta como editada.
+ * Tells whether an installed skill lacks the lock's hash. One that is not on
+ * disk does not count as edited.
  *
- * @param root - Raíz del repo.
- * @param lock - Lock leído.
- * @param name - Skill a revisar; tiene que estar en el lock.
- * @returns `true` si está en disco con otro contenido.
+ * @param root - Repo root.
+ * @param lock - Lock read.
+ * @param name - Skill to check; must be in the lock.
+ * @returns `true` if it is on disk with different content.
  */
 function isEdited(root, lock, name) {
   return ![undefined, lock.skills[name].hash].includes(installedHash(root, name));
 }
 
 /**
- * Corta si alguna skill instalada no tiene el hash del lock, y dice las dos
- * salidas: borrarla e instalar (vuelve a la versión del lock) o actualizarla
- * (pasa a la última publicada).
+ * Stops if any installed skill lacks the lock's hash, and states the two ways
+ * out: delete it and install (goes back to the lock version) or update it
+ * (moves to the latest published).
  *
- * @param root - Raíz del repo.
- * @param lock - Lock leído.
- * @param names - Skills a revisar; las que no están en disco no cuentan.
- * @throws {Error} Si alguna se editó a mano.
+ * @param root - Repo root.
+ * @param lock - Lock read.
+ * @param names - Skills to check; those not on disk do not count.
+ * @throws {Error} If any was edited by hand.
  */
 function assertUntouched(root, lock, names) {
   const edited = names.find((name) => isEdited(root, lock, name));
   if (edited !== undefined) {
     throw new Error(
-      `"${edited}" se editó a mano: para volver a la versión del lock, rm -rf ${SKILLS_DIR}/${edited} && bun run skills:install; ` +
-        `para pisarla con la última publicada, bun run skills:update ${edited}`,
+      `"${edited}" was edited by hand: to go back to the lock version, rm -rf ${SKILLS_DIR}/${edited} && skills-manager install; ` +
+        `to overwrite it with the latest published, skills-manager update ${edited}`,
     );
   }
 }
 
 /**
- * Versión publicada del origen: la de `.claude-plugin/plugin.json` o `package.json`.
+ * Published version of the origin: the one in `.claude-plugin/plugin.json` or `package.json`.
  *
- * @param dir - Carpeta raíz del plugin o del repo.
- * @returns La versión, o `undefined` si no declara ninguna.
+ * @param dir - Root folder of the plugin or repo.
+ * @returns The version, or `undefined` if it declares none.
  */
 function versionOf(dir) {
   for (const file of [".claude-plugin/plugin.json", "package.json"]) {
@@ -136,13 +136,13 @@ function versionOf(dir) {
 }
 
 /**
- * Arma los archivos de cada skill de un origen ya bajado: filtra las pedidas,
- * reescribe las referencias entre skills del mismo plugin y suma la licencia.
+ * Builds the files of each skill of a downloaded origin: filters the requested
+ * ones, rewrites references between skills of the same plugin and adds the license.
  *
- * @param tree - Checkout del origen.
- * @param plan - Plan de la fuente: `entry`, `root` (raíz del plugin o ruta de la skill) y `plugin`.
- * @returns Skills con nombre, ruta en el origen, archivos y versión.
- * @throws {Error} Si una skill trae symlinks o se sale del origen.
+ * @param tree - Origin checkout.
+ * @param plan - Source plan: `entry`, `root` (plugin root or skill path) and `plugin`.
+ * @returns Skills with name, path in the origin, files and version.
+ * @throws {Error} If a skill contains symlinks or escapes the origin.
  */
 function collectSkills(tree, plan) {
   const isPlugin = plan.plugin !== undefined;
@@ -170,31 +170,31 @@ function collectSkills(tree, plan) {
 }
 
 /**
- * Copia una skill suelta de la máquina (`~/.claude/skills/<nombre>`).
+ * Copies a standalone skill from the machine (`~/.claude/skills/<name>`).
  *
- * @param home - Home de la máquina.
- * @param name - Nombre de la skill.
- * @returns La skill con su nombre y sus archivos.
- * @throws {Error} Si el nombre no es válido, no está o trae symlinks.
+ * @param home - Machine home.
+ * @param name - Skill name.
+ * @returns The skill with its name and files.
+ * @throws {Error} If the name is not valid, it is missing or contains symlinks.
  */
 function collectLocal(home, name) {
   const dir = path.join(home, LOCAL_SKILLS, assertSkillName(name));
   if (!isRegularFile(path.join(dir, SKILL_FILE))) {
-    throw new Error(`No encuentro ~/${LOCAL_SKILLS}/${name}/${SKILL_FILE}.`);
+    throw new Error(`Cannot find ~/${LOCAL_SKILLS}/${name}/${SKILL_FILE}.`);
   }
   return { name, files: walk(dir) };
 }
 
 /**
- * Decide qué hacer con una fuente local: dejarla, o copiarla de la máquina si es
- * nueva, falta en disco o se pidió `update <nombre>`. Una local copiada pasa a
- * ser propia del repo: se puede editar, e `install` y un `update` general no la
- * tocan mientras esté en disco.
+ * Decides what to do with a local source: leave it, or copy it from the machine
+ * if it is new, missing on disk or `update <name>` was requested. A copied
+ * local becomes the repo's own: it can be edited, and `install` and a general
+ * `update` leave it alone while it is on disk.
  *
- * @param entry - Fuente `local` del manifiesto.
+ * @param entry - `local` source of the manifest.
  * @param context - `{ root, lock, home, update }`.
- * @returns Plan con `key`, `entry`, `names` y, si hay que copiar, `skills`.
- * @throws {Error} Si hay que copiarla y no está en la máquina.
+ * @returns Plan with `key`, `entry`, `names` and, if it must be copied, `skills`.
+ * @throws {Error} If it must be copied and is not on the machine.
  */
 function planLocal(entry, { root, lock, home, update }) {
   const names = lockedNames(lock, entry);
@@ -205,14 +205,14 @@ function planLocal(entry, { root, lock, home, update }) {
 }
 
 /**
- * Decide qué hacer con una fuente: dejarla, rearmarla al commit del lock (falta
- * algo o cambió su lista de skills) o bajarla al último publicado (nueva o pedida
- * en `update`).
+ * Decides what to do with a source: leave it, rebuild it at the lock commit
+ * (something is missing or its skills list changed) or fetch it at the latest
+ * published (new or requested in `update`).
  *
- * @param entry - Fuente del manifiesto.
+ * @param entry - Manifest source.
  * @param context - `{ root, lock, home, marketplaces, update }`.
- * @returns Plan con `key`, `entry`, `names` fijados y, si hay que bajar, `repo`, `commit`, `root` y `plugin`.
- * @throws {Error} Si una skill fijada se editó a mano y no se pidió pisarla.
+ * @returns Plan with `key`, `entry`, pinned `names` and, if it must be fetched, `repo`, `commit`, `root` and `plugin`.
+ * @throws {Error} If a pinned skill was edited by hand and overwriting was not requested.
  */
 function planSource(entry, context) {
   if (entry.local !== undefined) {
@@ -238,33 +238,33 @@ function planSource(entry, context) {
 }
 
 /**
- * Describe lo que cambia: skills nuevas, que se quitan, que cambian de commit y
- * las editadas a mano que se van a pisar.
+ * Describes what changes: new skills, removed ones, ones that change commit and
+ * the hand-edited ones that will be overwritten.
  *
- * @param root - Raíz del repo.
- * @param plans - Planes con sus skills ya armadas.
- * @param stale - Skills del lock cuya fuente ya no está en el manifiesto.
- * @param lock - Lock anterior.
- * @returns Una línea por cambio.
+ * @param root - Repo root.
+ * @param plans - Plans with their skills already built.
+ * @param stale - Lock skills whose source is no longer in the manifest.
+ * @param lock - Previous lock.
+ * @returns One line per change.
  */
 function describeChanges(root, plans, stale, lock) {
-  const lines = stale.map((name) => `${name}: se quita`);
+  const lines = stale.map((name) => `${name}: will be removed`);
   for (const plan of plans.filter((candidate) => candidate.skills !== undefined)) {
     const fresh = new Set(plan.skills.map((skill) => skill.name));
-    lines.push(...plan.names.filter((name) => !fresh.has(name)).map((name) => `${name}: se quita`));
+    lines.push(...plan.names.filter((name) => !fresh.has(name)).map((name) => `${name}: will be removed`));
     const label = plan.commit?.slice(0, SHORT_SHA) ?? LOCAL_SOURCE;
     for (const { name } of plan.skills) {
       const known = Object.hasOwn(lock.skills, name);
       const old = known ? lock.skills[name].commit : undefined;
       if (!known) {
-        lines.push(`${name}: nueva (${label})`);
+        lines.push(`${name}: new (${label})`);
         continue;
       }
       if (old !== plan.commit) {
         lines.push(`${name}: ${old?.slice(0, SHORT_SHA) ?? LOCAL_SOURCE} → ${label}`);
       }
       if (isEdited(root, lock, name)) {
-        lines.push(`${name}: editada a mano, se pisa`);
+        lines.push(`${name}: edited by hand, will be overwritten`);
       }
     }
   }
@@ -272,10 +272,10 @@ function describeChanges(root, plans, stale, lock) {
 }
 
 /**
- * Baja cada fuente que lo necesita y arma sus skills.
+ * Fetches each source that needs it and builds its skills.
  *
- * @param plans - Planes de cada fuente; se les agrega `skills`.
- * @param temp - Carpeta temporal donde bajar los orígenes.
+ * @param plans - Plan of each source; `skills` is added to them.
+ * @param temp - Temporary folder where origins are fetched.
  */
 function fetchPlans(plans, temp) {
   for (const [index, plan] of plans.entries()) {
@@ -288,12 +288,12 @@ function fetchPlans(plans, temp) {
 }
 
 /**
- * Corta si una skill entrante choca con una propia o con la de otro origen.
+ * Stops if an incoming skill clashes with an own one or with another origin's.
  *
- * @param root - Raíz del repo.
- * @param plans - Planes con sus skills ya armadas.
- * @param lock - Lock anterior; lo que está en él no es propio.
- * @throws {Error} Con un mensaje por colisión.
+ * @param root - Repo root.
+ * @param plans - Plans with their skills already built.
+ * @param lock - Previous lock; what is in it is not own.
+ * @throws {Error} With one message per collision.
  */
 function assertNoCollisions(root, plans, lock) {
   const incoming = new Map();
@@ -311,24 +311,25 @@ function assertNoCollisions(root, plans, lock) {
 }
 
 /**
- * Reconcilia `.agents/skills/` y el lock con el manifiesto: quita lo que ya no
- * está, rearma lo que cambió y baja lo nuevo. Las fuentes `local` se copian de
- * `~/.claude/skills` cuando faltan y `update` solo las pisa si se las nombra.
+ * Reconciles `.agents/skills/` and the lock with the manifest: removes what is
+ * gone, rebuilds what changed and fetches what is new. `local` sources are
+ * copied from `~/.claude/skills` when missing and `update` only overwrites them
+ * if they are named.
  *
- * @param root - Raíz del repo.
- * @param opts - `{ home, update?: true | nombre, dryRun?, log? }`.
- * @returns `{ changed }`: si se escribió el lock.
- * @throws {Error} Si una skill se editó a mano, hay colisiones, datos inválidos o falla git.
+ * @param root - Repo root.
+ * @param opts - `{ home, update?: true | name, dryRun?, log? }`.
+ * @returns `{ changed }`: whether the lock was written.
+ * @throws {Error} If a skill was edited by hand, there are collisions, invalid data or git fails.
  */
 export function installAll(root, { home, update, dryRun = false, log = console.log }) {
   const manifest = readManifest(root);
   if (manifest === undefined) {
-    log(`No hay ${MANIFEST}: nada que instalar.`);
+    log(`No ${MANIFEST}: nothing to install.`);
     return { changed: false };
   }
   const lock = readLock(root);
   if (typeof update === "string" && !Object.hasOwn(lock.skills, update)) {
-    throw new Error(`"${update}" no está en ${LOCK}.`);
+    throw new Error(`"${update}" is not in ${LOCK}.`);
   }
   const stale = staleNames(lock, manifest);
   assertUntouched(root, lock, stale);
@@ -346,12 +347,12 @@ export function installAll(root, { home, update, dryRun = false, log = console.l
 }
 
 /**
- * Escribe las skills bajadas, borra las que salen, reescribe el lock si cambió y
- * deja desactivados en `.claude/settings.json` los plugins del lock.
+ * Writes the fetched skills, deletes those that leave, rewrites the lock if it
+ * changed and leaves the lock's plugins disabled in `.claude/settings.json`.
  *
- * @param root - Raíz del repo.
+ * @param root - Repo root.
  * @param state - `{ plans, stale, lock, manifest }`.
- * @returns `{ changed }`: si se escribió el lock.
+ * @returns `{ changed }`: whether the lock was written.
  */
 function writeAll(root, { plans, stale, lock, manifest }) {
   const skills = { ...lock.skills };
@@ -391,12 +392,12 @@ function writeAll(root, { plans, stale, lock, manifest }) {
 }
 
 /**
- * Busca diferencias entre disco, lock y manifiesto.
+ * Looks for differences between disk, lock and manifest.
  *
- * @param root - Raíz del repo.
- * @param manifest - Manifiesto leído.
- * @param lock - Lock leído.
- * @returns Pares `[problema, nombres]`, solo los que tienen algo.
+ * @param root - Repo root.
+ * @param manifest - Manifest read.
+ * @param lock - Lock read.
+ * @returns `[problem, names]` pairs, only those with something in them.
  */
 function driftProblems(root, manifest, lock) {
   const actual = new Map();
@@ -407,25 +408,25 @@ function driftProblems(root, manifest, lock) {
     }
   }
   const diff = diffLock(lock, actual);
-  // NOTA: una local copiada es propia del repo; editarla no es una deriva.
+  // NOTE: a copied local is the repo's own; editing it is not drift.
   const modified = diff.modified.filter((name) => lock.skills[name].source !== LOCAL_SOURCE);
   const remote = manifest.sources.filter((entry) => entry.local === undefined);
   const plugins = manifestPlugins(manifest);
-  const pluginsDiff = `lock [${lock.plugins.join(", ")}], manifiesto [${plugins.join(", ")}]`;
+  const pluginsDiff = `lock [${lock.plugins.join(", ")}], manifest [${plugins.join(", ")}]`;
   return [
-    ["faltan en disco", diff.missing],
-    ["editadas a mano", modified],
-    ["fuentes sin instalar", manifest.sources.filter((entry) => lockedNames(lock, entry).length === 0).map(sourceLabel)],
-    ["en el lock sin fuente en el manifiesto", staleNames(lock, manifest)],
-    ["con otra lista de skills que el lock", remote.filter((e) => e.skills !== undefined && !sameSet(e.skills, lockedNames(lock, e))).map(sourceKey)],
-    ["plugins del lock distintos del manifiesto", JSON.stringify(plugins) === JSON.stringify(lock.plugins) ? [] : [pluginsDiff]],
+    ["missing on disk", diff.missing],
+    ["edited by hand", modified],
+    ["sources not installed", manifest.sources.filter((entry) => lockedNames(lock, entry).length === 0).map(sourceLabel)],
+    ["in the lock without a source in the manifest", staleNames(lock, manifest)],
+    ["with a different skills list than the lock", remote.filter((e) => e.skills !== undefined && !sameSet(e.skills, lockedNames(lock, e))).map(sourceKey)],
+    ["lock plugins differ from the manifest", JSON.stringify(plugins) === JSON.stringify(lock.plugins) ? [] : [pluginsDiff]],
   ].filter(([, names]) => names.length > 0);
 }
 
 /**
- * Compara disco, lock y manifiesto, y termina con 1 si algo no coincide.
+ * Compares disk, lock and manifest, and exits with 1 if anything does not match.
  *
- * @param root - Raíz del repo.
+ * @param root - Repo root.
  */
 function commandCheck(root) {
   const manifest = readManifest(root);
@@ -434,10 +435,10 @@ function commandCheck(root) {
   }
   const problems = driftProblems(root, manifest, readLock(root));
   if (problems.length === 0) {
-    console.log("✅ Skills de terceros al día con el lock y el manifiesto.");
+    console.log("✅ Third-party skills match the lock and the manifest.");
     return;
   }
-  console.error("❌ Las skills de terceros no coinciden con el lock o el manifiesto (corré skills:install):");
+  console.error("❌ Third-party skills do not match the lock or the manifest (run skills-manager install):");
   for (const [kind, names] of problems) {
     console.error(`   ${kind}: ${names.join(", ")}`);
   }
@@ -445,10 +446,10 @@ function commandCheck(root) {
 }
 
 /**
- * Imprime cada skill del lock con su origen y versión, y si hay una nueva.
+ * Prints each lock skill with its origin and version, and whether a newer one exists.
  *
- * @param root - Raíz del repo.
- * @param home - Home con los marketplaces.
+ * @param root - Repo root.
+ * @param home - Home holding the marketplaces.
  */
 function commandList(root, home) {
   const lock = readLock(root);
@@ -458,18 +459,18 @@ function commandList(root, home) {
     try {
       latest.set(sourceKey(entry), latestCommit(describeSource(entry, marketplaces)));
     } catch {
-      // NOTA: sin el marketplace o sin red no se sabe si hay versión nueva; se lista igual.
+      // NOTE: without the marketplace or the network it is unknown whether a newer version exists; it is listed anyway.
     }
   }
   for (const [name, skill] of Object.entries(lock.skills)) {
-    const newer = latest.has(skill.source) && latest.get(skill.source) !== skill.commit ? "  (hay versión nueva)" : "";
+    const newer = latest.has(skill.source) && latest.get(skill.source) !== skill.commit ? "  (newer version available)" : "";
     console.log(`${name}  ${skill.source}  ${skill.version ?? "-"} (${skill.commit?.slice(0, SHORT_SHA) ?? LOCAL_SOURCE})${newer}`);
   }
 }
 
 /**
- * Punto de entrada: ubica la raíz del repo y despacha el subcomando. Los errores
- * terminan con su `exitCode` (2 para los de uso) o con 1.
+ * Entry point: finds the repo root and dispatches the subcommand. Errors end
+ * with their `exitCode` (2 for usage errors) or with 1.
  */
 async function main() {
   const [subcommand, ...rest] = process.argv.slice(2);
@@ -488,7 +489,7 @@ async function main() {
     } else if (subcommand === "init" || subcommand === "add") {
       await commandPick(root, { init: subcommand === "init", args: rest, home, install: () => installAll(root, { home }) });
     } else {
-      throw new Error(`Subcomando desconocido: ${subcommand ?? "(ninguno)"}; usá install, update, check, list, init o add`);
+      throw new Error(`Unknown subcommand: ${subcommand ?? "(none)"}; use install, update, check, list, init or add`);
     }
   } catch (error) {
     console.error(`❌ ${error.message}`);

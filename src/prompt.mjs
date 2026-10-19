@@ -1,44 +1,44 @@
 /**
- * @file Menú interactivo de `skills:init` y `skills:add`, con casillas
- * (`@clack/prompts`). Primero se marcan plugins y skills locales, una línea
- * corta por cada uno; después, por cada plugin marcado con más de una skill, se
- * pregunta si van todas o se eligen. Al final muestra el resumen y pide
- * confirmar. Solo corre con terminal; sin ella, `pick.mjs` pide `--select`.
+ * @file Interactive checkbox menu for `skills-manager init` and `skills-manager add`
+ * (`@clack/prompts`). First plugins and local skills are ticked, one short line
+ * each; then, for each ticked plugin with more than one skill, it asks whether
+ * to take all or pick some. At the end it shows the summary and asks for
+ * confirmation. It only runs with a terminal; without one, `pick.mjs` asks for `--select`.
  */
 import { confirm, intro, isCancel, multiselect, note, outro, select } from "@clack/prompts";
 
 import { menuOptions, pickSummary } from "./lib.mjs";
 
-/** Respuesta "llevar todas las skills del plugin". */
+/** Answer "take all the plugin's skills". */
 const ALL_SKILLS = "all";
 
-/** Respuesta "elegir skills sueltas del plugin". */
+/** Answer "pick individual skills of the plugin". */
 const SOME_SKILLS = "some";
 
-/** Filas de la lista que se ven a la vez; el resto se recorre con las flechas. */
+/** List rows visible at once; the rest is reached with the arrow keys. */
 const MAX_ROWS = 10;
 
-/** Mensaje cuando se cancela con Ctrl+C o Esc; lo imprime el CLI al salir. */
-const CANCELLED = "Cancelado; no cambié nada.";
+/** Message when cancelled with Ctrl+C or Esc; the CLI prints it on exit. */
+const CANCELLED = "Cancelled; nothing changed.";
 
-/** Ayuda de teclas de las listas con casillas (las de la librería vienen en inglés). */
-const CHECKBOX_KEYS = "(espacio marca · enter sigue)";
+/** Key help for checkbox lists (replaces the library's own help). */
+const CHECKBOX_KEYS = "(space ticks · enter continues)";
 
-/** Ayuda de teclas de las preguntas de una sola opción. */
-const SELECT_KEYS = "(enter elige)";
+/** Key help for single-choice questions. */
+const SELECT_KEYS = "(enter selects)";
 
-/** Separa el nombre del plugin de su marketplace en un id. */
+/** Separates the plugin name from its marketplace in an id. */
 const PLUGIN_ID_SEPARATOR = "@";
 
-/** Orden de las skills en la lista: alfabético, con los números en orden natural. */
-const NATURAL = new Intl.Collator("es", { numeric: true });
+/** Order of skills in the list: alphabetical, with numbers in natural order. */
+const NATURAL = new Intl.Collator("en", { numeric: true });
 
 /**
- * Corta si la persona canceló el paso.
+ * Stops if the person cancelled the step.
  *
- * @param value - Lo que devolvió el prompt.
- * @returns El mismo valor, si no se canceló.
- * @throws {Error} Si se canceló.
+ * @param value - What the prompt returned.
+ * @returns The same value, if not cancelled.
+ * @throws {Error} If cancelled.
  */
 function orCancel(value) {
   if (isCancel(value)) {
@@ -48,11 +48,11 @@ function orCancel(value) {
 }
 
 /**
- * Pregunta qué skills de un plugin se llevan: todas, o una lista marcada.
+ * Asks which skills of a plugin to take: all, or a ticked list.
  *
- * @param candidate - El plugin marcado.
- * @returns La elección `{ id, skills? }`; sin `skills` son todas.
- * @throws {Error} Si se cancela.
+ * @param candidate - The ticked plugin.
+ * @returns The pick `{ id, skills? }`; without `skills` it means all.
+ * @throws {Error} If cancelled.
  */
 async function askSkills(candidate) {
   const name = candidate.id.split(PLUGIN_ID_SEPARATOR)[0];
@@ -61,10 +61,10 @@ async function askSkills(candidate) {
   }
   const mode = orCancel(
     await select({
-      message: `${name}: ¿todas las skills? ${SELECT_KEYS}`,
+      message: `${name}: all the skills? ${SELECT_KEYS}`,
       options: [
-        { value: ALL_SKILLS, label: `Todas (${candidate.skills.length})` },
-        { value: SOME_SKILLS, label: "Elegir" },
+        { value: ALL_SKILLS, label: `All (${candidate.skills.length})` },
+        { value: SOME_SKILLS, label: "Pick some" },
       ],
       showInstructions: false,
     }),
@@ -74,7 +74,7 @@ async function askSkills(candidate) {
   }
   const skills = orCancel(
     await multiselect({
-      message: `Skills de ${name} ${CHECKBOX_KEYS}`,
+      message: `Skills of ${name} ${CHECKBOX_KEYS}`,
       options: candidate.skills.toSorted(NATURAL.compare).map((skill) => ({ value: skill })),
       maxItems: MAX_ROWS,
       required: true,
@@ -85,24 +85,24 @@ async function askSkills(candidate) {
 }
 
 /**
- * Muestra el menú con casillas y devuelve lo elegido.
+ * Shows the checkbox menu and returns what was picked.
  *
- * @param candidates - Lo que devuelve `listCandidates`.
- * @returns Elecciones `{ id, skills? }`.
- * @throws {Error} Si no hay nada elegible, o se cancela o no se confirma.
+ * @param candidates - What `listCandidates` returns.
+ * @returns Picks `{ id, skills? }`.
+ * @throws {Error} If nothing is pickable, or it is cancelled or not confirmed.
  */
 export async function askInteractively(candidates) {
   const { options, hidden } = menuOptions(candidates);
   if (options.length === 0) {
-    throw new Error("No hay nada instalado en la máquina para sumar.");
+    throw new Error("Nothing installed on this machine to add.");
   }
-  intro("Skills de terceros");
+  intro("Third-party skills");
   if (hidden.length > 0) {
-    note(hidden.join("\n"), "No se pueden elegir");
+    note(hidden.join("\n"), "Cannot be picked");
   }
   const ids = orCancel(
     await multiselect({
-      message: `¿Qué sumás? ${CHECKBOX_KEYS}`,
+      message: `What do you want to add? ${CHECKBOX_KEYS}`,
       options,
       maxItems: MAX_ROWS,
       required: true,
@@ -114,10 +114,10 @@ export async function askInteractively(candidates) {
     const candidate = candidates.find((option) => option.id === id);
     picks.push(candidate?.kind === "plugin" ? await askSkills(candidate) : { id });
   }
-  note(pickSummary(picks, candidates), "Vas a sumar");
-  if (!orCancel(await confirm({ message: "¿Sigo?", active: "Sí", inactive: "No" }))) {
+  note(pickSummary(picks, candidates), "You are about to add");
+  if (!orCancel(await confirm({ message: "Continue?", active: "Yes", inactive: "No" }))) {
     throw new Error(CANCELLED);
   }
-  outro("Instalando…");
+  outro("Installing…");
   return picks;
 }

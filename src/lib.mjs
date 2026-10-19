@@ -1,54 +1,54 @@
 /**
- * @file Funciones puras del manejo de skills de terceros: validación del
- * manifiesto (`.agents/skills.json`), resolución de plugins del marketplace,
- * reescritura de referencias `plugin:skill`, colisiones de nombres, hash del
- * contenido instalado, deriva contra el lock (`.agents/skills.lock.json`), y
- * candidatos y elección de `skills:init` / `skills:add`. No tocan el disco ni
- * la red; el CLI las compone.
+ * @file Pure functions for handling third-party skills: manifest validation
+ * (`.agents/skills.json`), marketplace plugin resolution, rewriting of
+ * `plugin:skill` references, name collisions, installed-content hash, drift
+ * against the lock (`.agents/skills.lock.json`), and the candidates and picks
+ * of `skills-manager init` / `skills-manager add`. They touch neither the disk
+ * nor the network; the CLI composes them.
  */
 import { createHash } from "node:crypto";
 
-/** Claves que identifican el origen de una fuente del manifiesto; solo una por entrada. */
+/** Keys that identify the origin of a manifest source; only one per entry. */
 const SOURCE_KINDS = ["plugin", "repo", "local"];
 
-/** Prefijo de las rutas relativas al repo del marketplace. */
+/** Prefix of paths relative to the marketplace repo. */
 const RELATIVE_PREFIX = "./";
 
-/** Prefijo del hash que se escribe en el lock. */
+/** Prefix of the hash written in the lock. */
 const HASH_PREFIX = "sha256-";
 
-/** Separador entre campos al hashear, para que ruta y bytes no se confundan. */
+/** Separator between fields when hashing, so path and bytes cannot be confused. */
 const HASH_SEPARATOR = "\0";
 
-/** Marca que se suma al hash de un archivo ejecutable, para que perder el bit cambie el hash. */
+/** Mark added to the hash of an executable file, so losing the bit changes the hash. */
 const HASH_EXECUTABLE = "+x";
 
-/** Carpeta de `~/.claude/skills` que sincroniza otra herramienta: no es una skill. */
+/** Folder in `~/.claude/skills` synced by another tool: not a skill. */
 const SYNCED_DIR = "synced";
 
-/** Scope preferido cuando un plugin está instalado varias veces. */
+/** Preferred scope when a plugin is installed several times. */
 const USER_SCOPE = "user";
 
-/** Separador entre fuentes en `--select` y entre números en la respuesta interactiva. */
+/** Separator between sources in `--select` and between numbers in the interactive answer. */
 const LIST_SEPARATOR = ",";
 
-/** Separador entre una fuente y sus skills sueltas. */
+/** Separator between a source and its individual skills. */
 const SKILLS_SEPARATOR = ":";
 
-/** Separador entre skills sueltas en `--select`. */
+/** Separator between individual skills in `--select`. */
 const SELECT_SKILL_SEPARATOR = "+";
 
-/** Separa el nombre del plugin de su marketplace en un id (`superpowers@claude-plugins-official`). */
+/** Separates the plugin name from its marketplace in an id (`superpowers@claude-plugins-official`). */
 const PLUGIN_ID_SEPARATOR = "@";
 
 /**
- * Valida el manifiesto de skills: cada fuente debe traer exactamente una de
- * `plugin`, `repo` o `local`.
+ * Validates the skills manifest: each source must carry exactly one of
+ * `plugin`, `repo` or `local`.
  *
- * @param text - Contenido JSON del manifiesto.
- * @returns El manifiesto ya parseado.
- * @throws {Error} Si el JSON no tiene `sources` o una entrada no cumple la regla;
- * el mensaje incluye la entrada inválida.
+ * @param text - JSON content of the manifest.
+ * @returns The parsed manifest.
+ * @throws {Error} If the JSON has no `sources` or an entry breaks the rule;
+ * the message includes the invalid entry.
  * @example
  * parseManifest('{"sources":[{"local":"x"}]}');
  * // { sources: [{ local: "x" }] }
@@ -56,13 +56,13 @@ const PLUGIN_ID_SEPARATOR = "@";
 export function parseManifest(text) {
   const manifest = JSON.parse(text);
   if (!Array.isArray(manifest?.sources)) {
-    throw new Error('El manifiesto necesita una lista "sources".');
+    throw new Error('The manifest needs a "sources" list.');
   }
   for (const entry of manifest.sources) {
     const kinds = SOURCE_KINDS.filter((kind) => entry?.[kind] !== undefined);
     if (kinds.length !== 1) {
       throw new Error(
-        `Cada fuente lleva exactamente una de ${SOURCE_KINDS.join(", ")}: ${JSON.stringify(entry)}`,
+        `Each source takes exactly one of ${SOURCE_KINDS.join(", ")}: ${JSON.stringify(entry)}`,
       );
     }
   }
@@ -70,12 +70,12 @@ export function parseManifest(text) {
 }
 
 /**
- * Traduce la entrada de un plugin en `marketplace.json` a dónde bajarlo.
+ * Translates a plugin entry in `marketplace.json` into where to download it.
  *
- * @param entry - Entrada del plugin en el marketplace.
- * @param marketplaceRepo - URL del repo del marketplace, para las rutas relativas.
- * @returns Repo, ref y sha opcionales, y la ruta del plugin dentro del repo.
- * @throws {Error} Si el tipo de `source` no se conoce.
+ * @param entry - Plugin entry in the marketplace.
+ * @param marketplaceRepo - Marketplace repo URL, for relative paths.
+ * @returns Repo, optional ref and sha, and the plugin path inside the repo.
+ * @throws {Error} If the `source` type is unknown.
  * @example
  * resolvePluginSource({ name: "x", source: "./plugins/x" }, "https://h/m.git");
  * // { repo: "https://h/m.git", path: "plugins/x" }
@@ -96,31 +96,31 @@ export function resolvePluginSource(entry, marketplaceRepo) {
       path: ".",
     };
   }
-  throw new Error(`Tipo de fuente desconocido en el plugin ${entry.name}: ${JSON.stringify(source)}`);
+  throw new Error(`Unknown source type in plugin ${entry.name}: ${JSON.stringify(source)}`);
 }
 
 /**
- * Escapa un texto para usarlo literal dentro de una expresión regular.
+ * Escapes a text so it can be used literally inside a regular expression.
  *
- * @param text - Texto a escapar.
- * @returns El texto con los metacaracteres escapados.
+ * @param text - Text to escape.
+ * @returns The text with metacharacters escaped.
  */
 function escapeRegExp(text) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**
- * Reemplaza `<plugin>:<skill>` por `<skill>` cuando la skill quedó instalada
- * sin prefijo. No toca otros plugins, ni coincidencias pegadas a `/`, `:`, `.`
- * o a un nombre más largo (URLs y esquemas como `superpowers://`).
+ * Replaces `<plugin>:<skill>` with `<skill>` when the skill was installed
+ * without a prefix. It leaves other plugins alone, as well as matches stuck to
+ * `/`, `:`, `.` or a longer name (URLs and schemes like `superpowers://`).
  *
- * @param text - Contenido de un archivo de la skill.
- * @param plugin - Nombre del plugin de origen.
- * @param installed - Nombres de las skills instaladas.
- * @returns El texto con las referencias propias sin prefijo.
+ * @param text - Content of a skill file.
+ * @param plugin - Name of the source plugin.
+ * @param installed - Names of the installed skills.
+ * @returns The text with its own references unprefixed.
  * @example
- * rewritePluginRefs("usá p:a y q:a", "p", new Set(["a"]));
- * // "usá a y q:a"
+ * rewritePluginRefs("use p:a and q:a", "p", new Set(["a"]));
+ * // "use a and q:a"
  */
 export function rewritePluginRefs(text, plugin, installed) {
   const pattern = new RegExp(`(?<![\\w/:.-])${escapeRegExp(plugin)}:([\\w-]+)`, "g");
@@ -128,37 +128,37 @@ export function rewritePluginRefs(text, plugin, installed) {
 }
 
 /**
- * Busca nombres de skill que chocarían al instalarse: repetidos entre
- * orígenes o iguales a una skill propia del repo.
+ * Finds skill names that would clash on install: repeated across origins or
+ * equal to one of the repo's own skills.
  *
- * @param incoming - Nombre de la skill a su origen; si varios orígenes la
- * traen, el valor es la lista de orígenes.
- * @param own - Nombres de las skills propias del repo.
- * @returns Un mensaje por colisión, que dice qué excluir en el manifiesto.
+ * @param incoming - Skill name to its origin; if several origins bring it,
+ * the value is the list of origins.
+ * @param own - Names of the repo's own skills.
+ * @returns One message per collision, saying what to exclude in the manifest.
  * @example
  * findCollisions(new Map([["a", ["x", "y"]]]), new Set());
- * // ['"a" viene de x, y: excluí "a" en el manifiesto de uno de los orígenes']
+ * // ['"a" comes from x, y: exclude "a" in the manifest of one of the origins']
  */
 export function findCollisions(incoming, own) {
   const messages = [];
   for (const [name, origin] of incoming) {
     const origins = [origin].flat();
     if (own.has(name)) {
-      messages.push(`"${name}" (de ${origins.join(", ")}) ya existe como skill propia: excluí "${name}" en el manifiesto`);
+      messages.push(`"${name}" (from ${origins.join(", ")}) already exists as an own skill: exclude "${name}" in the manifest`);
     } else if (new Set(origins).size > 1) {
-      messages.push(`"${name}" viene de ${origins.join(", ")}: excluí "${name}" en el manifiesto de uno de los orígenes`);
+      messages.push(`"${name}" comes from ${origins.join(", ")}: exclude "${name}" in the manifest of one of the origins`);
     }
   }
   return messages;
 }
 
 /**
- * Calcula el hash del contenido instalado de una skill: rutas relativas
- * ordenadas más sus bytes y, en los ejecutables, una marca, sin depender del
- * orden de entrada. Un archivo no ejecutable hashea igual que antes de la
- * marca, así los locks viejos siguen valiendo.
+ * Computes the hash of a skill's installed content: sorted relative paths plus
+ * their bytes and, for executables, a mark, regardless of input order. A
+ * non-executable file hashes the same as before the mark existed, so old locks
+ * stay valid.
  *
- * @param files - Archivos con su ruta relativa, su contenido y `executable` opcional.
+ * @param files - Files with their relative path, content and optional `executable`.
  * @returns `sha256-<hex>`.
  * @example
  * hashFiles([{ path: "SKILL.md", content: Buffer.from("x") }]);
@@ -177,11 +177,11 @@ export function hashFiles(files) {
 }
 
 /**
- * Compara el lock con las skills que hay en disco.
+ * Compares the lock with the skills on disk.
  *
- * @param lock - Contenido del lock (`{ skills: { nombre: { hash } } }`).
- * @param actual - Nombre de la skill instalada a su hash actual.
- * @returns Las que faltan en disco, las de hash distinto y las que el lock no conoce.
+ * @param lock - Lock content (`{ skills: { name: { hash } } }`).
+ * @param actual - Installed skill name to its current hash.
+ * @returns Those missing on disk, those with a different hash and those the lock does not know.
  * @example
  * diffLock({ skills: { a: { hash: "h" } } }, new Map([["b", "h"]]));
  * // { missing: ["a"], modified: [], extra: ["b"] }
@@ -197,12 +197,12 @@ export function diffLock(lock, actual) {
 }
 
 /**
- * Elige, entre las instalaciones de un plugin, una cuya carpeta exista,
- * prefiriendo la de scope `user`.
+ * Picks, among a plugin's installs, one whose folder exists, preferring the
+ * `user` scope.
  *
- * @param entries - Entradas del plugin en `installed_plugins.json`.
- * @param skillDirs - Carpeta instalada a sus skills; solo trae las que existen.
- * @returns La entrada elegida, o `undefined` si ninguna está en disco.
+ * @param entries - Plugin entries in `installed_plugins.json`.
+ * @param skillDirs - Installed folder to its skills; only holds those that exist.
+ * @returns The chosen entry, or `undefined` if none is on disk.
  */
 function pickInstall(entries, skillDirs) {
   const present = [entries].flat().filter((entry) => skillDirs.has(entry?.installPath));
@@ -210,12 +210,12 @@ function pickInstall(entries, skillDirs) {
 }
 
 /**
- * Arma el candidato de un plugin instalado, con una nota si no se puede elegir.
+ * Builds the candidate of an installed plugin, with a note if it cannot be picked.
  *
  * @param id - `plugin@marketplace`.
- * @param entries - Sus entradas en `installed_plugins.json`.
- * @param machine - Lo leído de la máquina (ver `listCandidates`).
- * @returns El candidato.
+ * @param entries - Its entries in `installed_plugins.json`.
+ * @param machine - What was read from the machine (see `listCandidates`).
+ * @returns The candidate.
  */
 function pluginCandidate(id, entries, { skillDirs, marketplaces }) {
   const marketplace = id.split("@")[1];
@@ -223,25 +223,25 @@ function pluginCandidate(id, entries, { skillDirs, marketplaces }) {
   const skills = install === undefined ? [] : (skillDirs.get(install.installPath) ?? []);
   const candidate = { id, kind: "plugin", skills: [...skills] };
   if (!marketplaces.has(marketplace)) {
-    return { ...candidate, note: `no pude leer el marketplace ${marketplace}` };
+    return { ...candidate, note: `could not read marketplace ${marketplace}` };
   }
   if (install === undefined) {
-    return { ...candidate, note: "no está en disco" };
+    return { ...candidate, note: "not on disk" };
   }
-  return skills.length === 0 ? { ...candidate, note: "sin skills" } : candidate;
+  return skills.length === 0 ? { ...candidate, note: "no skills" } : candidate;
 }
 
 /**
- * Lista lo que se puede sumar al manifiesto desde lo instalado en la máquina:
- * cada plugin de `installed_plugins.json` con sus skills y cada skill de
- * `~/.claude/skills`. Lo que ya está en el manifiesto no aparece.
+ * Lists what can be added to the manifest from what is installed on the machine:
+ * each plugin in `installed_plugins.json` with its skills and each skill in
+ * `~/.claude/skills`. What is already in the manifest does not appear.
  *
- * @param machine - Lo leído de la máquina: `installed` (el JSON de
- * `installed_plugins.json` o `undefined`), `skillDirs` (carpeta instalada que
- * existe a sus skills, o `null` si no tiene `skills/`), `local` (carpetas de
- * `~/.claude/skills` con `SKILL.md`) y `marketplaces` (nombres que se pudieron leer).
- * @param manifest - Manifiesto actual, o `undefined` si no hay.
- * @returns Candidatos `{ id, kind, skills, note? }`: primero los plugins, después las locales; con `note` no se pueden elegir.
+ * @param machine - What was read from the machine: `installed` (the JSON of
+ * `installed_plugins.json` or `undefined`), `skillDirs` (existing installed
+ * folder to its skills, or `null` if it has no `skills/`), `local` (folders in
+ * `~/.claude/skills` with `SKILL.md`) and `marketplaces` (names that could be read).
+ * @param manifest - Current manifest, or `undefined` if there is none.
+ * @returns Candidates `{ id, kind, skills, note? }`: plugins first, then locals; those with `note` cannot be picked.
  * @example
  * listCandidates({ installed: undefined, skillDirs: new Map(), local: ["x"], marketplaces: new Set() }, undefined);
  * // [{ id: "x", kind: "local", skills: ["x"] }]
@@ -258,11 +258,11 @@ export function listCandidates(machine, manifest) {
 }
 
 /**
- * Lee el valor de `--select`: fuentes separadas por coma y, para elegir skills
- * sueltas de un plugin, `plugin@mkt:skill1+skill2`.
+ * Reads the `--select` value: sources separated by commas and, to pick
+ * individual skills of a plugin, `plugin@mkt:skill1+skill2`.
  *
- * @param text - Valor de `--select`.
- * @returns Elecciones `{ id, skills? }`.
+ * @param text - `--select` value.
+ * @returns Picks `{ id, skills? }`.
  * @example
  * parseSelect("a@m:x+y,local");
  * // [{ id: "a@m", skills: ["x", "y"] }, { id: "local" }]
@@ -279,23 +279,23 @@ export function parseSelect(text) {
 }
 
 /**
- * Nombre corto de un candidato: el plugin sin su marketplace, o la skill local.
+ * Short name of a candidate: the plugin without its marketplace, or the local skill.
  *
- * @param id - Id del candidato.
- * @returns El nombre antes de `@`.
+ * @param id - Candidate id.
+ * @returns The name before `@`.
  */
 function shortName(id) {
   return id.split(PLUGIN_ID_SEPARATOR)[0];
 }
 
 /**
- * Arma las opciones del menú interactivo: una línea corta por candidato
- * elegible (nombre y cuántas skills trae, todo en la etiqueta para que se vea
- * en cada fila y no solo en la del cursor) y, aparte, los que no se pueden
- * elegir, para mostrarlos en una sola línea al pie. Si dos plugins se llaman
- * igual en distintos marketplaces, el marketplace va entre paréntesis.
+ * Builds the options of the interactive menu: one short line per pickable
+ * candidate (name and how many skills it brings, all in the label so it shows
+ * on every row and not only on the cursor's) and, apart, those that cannot be
+ * picked, to show them on a single line at the bottom. If two plugins share a
+ * name in different marketplaces, the marketplace goes in parentheses.
  *
- * @param candidates - Lo que devuelve `listCandidates`.
+ * @param candidates - What `listCandidates` returns.
  * @returns `{ options: [{ value, label }], hidden: string[] }`.
  * @example
  * menuOptions([{ id: "superpowers@m", kind: "plugin", skills: ["a", "b"] }]);
@@ -314,21 +314,21 @@ export function menuOptions(candidates) {
       continue;
     }
     const count = candidate.skills.length;
-    const detail = candidate.kind === "local" ? "tuya" : `${count} ${count === 1 ? "skill" : "skills"}`;
+    const detail = candidate.kind === "local" ? "yours" : `${count} ${count === 1 ? "skill" : "skills"}`;
     options.push({ value: candidate.id, label: `${label} · ${detail}` });
   }
   return { options, hidden };
 }
 
 /**
- * Resume lo elegido, una línea por candidato, para confirmar antes de instalar.
+ * Summarizes the picks, one line per candidate, to confirm before installing.
  *
- * @param picks - Elecciones `{ id, skills? }`.
- * @param candidates - Lo que devuelve `listCandidates`.
- * @returns Las líneas unidas con salto de línea.
+ * @param picks - Picks `{ id, skills? }`.
+ * @param candidates - What `listCandidates` returns.
+ * @returns The lines joined with newlines.
  * @example
  * pickSummary([{ id: "superpowers@m" }], [{ id: "superpowers@m", kind: "plugin", skills: ["a"] }]);
- * // "superpowers (todas, 1)"
+ * // "superpowers (all, 1)"
  */
 export function pickSummary(picks, candidates) {
   return picks
@@ -336,44 +336,44 @@ export function pickSummary(picks, candidates) {
       const candidate = candidates.find((option) => option.id === pick.id);
       const name = shortName(pick.id);
       if (candidate?.kind === "local") {
-        return `${name} (tuya)`;
+        return `${name} (yours)`;
       }
       if (pick.skills?.length > 0) {
         return `${name}: ${pick.skills.join(", ")}`;
       }
-      return `${name} (todas, ${candidate?.skills.length ?? 0})`;
+      return `${name} (all, ${candidate?.skills.length ?? 0})`;
     })
     .join("\n");
 }
 
 /**
- * Traduce lo elegido a fuentes del manifiesto, validando contra los candidatos.
+ * Translates the picks into manifest sources, validating against the candidates.
  *
- * @param picks - Elecciones `{ id, skills? }`; si una se repite, vale la última.
- * @param candidates - Lo que devuelve `listCandidates`.
- * @returns Fuentes `{ plugin, skills? }` o `{ local }`.
- * @throws {Error} Si no se eligió nada, o algo no está, tiene nota o pide una skill que no trae.
+ * @param picks - Picks `{ id, skills? }`; if one repeats, the last one wins.
+ * @param candidates - What `listCandidates` returns.
+ * @returns Sources `{ plugin, skills? }` or `{ local }`.
+ * @throws {Error} If nothing was picked, or something is missing, has a note or asks for a skill it does not provide.
  * @example
  * picksToSources([{ id: "x" }], [{ id: "x", kind: "local", skills: ["x"] }]);
  * // [{ local: "x" }]
  */
 export function picksToSources(picks, candidates) {
   if (picks.length === 0) {
-    throw new Error("No elegiste nada.");
+    throw new Error("You picked nothing.");
   }
   const unique = [...new Map(picks.map((pick) => [pick.id, pick])).values()];
   const sources = [];
   for (const pick of unique) {
     const candidate = candidates.find((option) => option.id === pick.id);
     if (candidate === undefined) {
-      throw new Error(`"${pick.id}" no está entre los candidatos (mirá --candidates).`);
+      throw new Error(`"${pick.id}" is not among the candidates (see --candidates).`);
     }
     if (candidate.note !== undefined) {
-      throw new Error(`"${pick.id}" no se puede elegir: ${candidate.note}.`);
+      throw new Error(`"${pick.id}" cannot be picked: ${candidate.note}.`);
     }
     const unknown = (pick.skills ?? []).filter((skill) => !candidate.skills.includes(skill));
     if (unknown.length > 0) {
-      throw new Error(`"${pick.id}" no trae ${unknown.join(", ")}; trae ${candidate.skills.join(", ")}.`);
+      throw new Error(`"${pick.id}" does not provide ${unknown.join(", ")}; it provides ${candidate.skills.join(", ")}.`);
     }
     if (candidate.kind === "local") {
       sources.push({ local: candidate.id });

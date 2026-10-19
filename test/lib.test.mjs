@@ -1,8 +1,8 @@
 /**
- * @file Tests de las funciones puras de `src/lib.mjs`: manifiesto,
- * resolución de plugins del marketplace, reescritura de referencias,
- * colisiones, hash del contenido, deriva contra el lock, candidatos de la
- * máquina y elección de `skills:init` / `skills:add`.
+ * @file Tests for the pure functions in `src/lib.mjs`: manifest,
+ * marketplace plugin resolution, reference rewriting, collisions, content
+ * hash, drift against the lock, machine candidates and the choice made by
+ * `skills-manager init` / `skills-manager add`.
  */
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
@@ -21,14 +21,14 @@ import {
   rewritePluginRefs,
 } from "../src/lib.mjs";
 
-/** Repo del marketplace oficial, de donde salen los plugins con ruta relativa. */
+/** Official marketplace repo, where plugins with a relative path live. */
 const MARKETPLACE = "https://github.com/anthropics/claude-plugins-official.git";
 
-/** Commit real de superpowers fijado en el marketplace. */
+/** Real superpowers commit pinned in the marketplace. */
 const SUPERPOWERS_SHA = "bb92a77741419a4ab5f06e711a283343f1ada0c3";
 
 describe("parseManifest", () => {
-  test("acepta las cuatro formas de fuente", () => {
+  test("accepts the four source shapes", () => {
     const text = JSON.stringify({
       sources: [
         { plugin: "superpowers@claude-plugins-official" },
@@ -40,22 +40,22 @@ describe("parseManifest", () => {
     assert.equal(parseManifest(text).sources.length, 4);
   });
 
-  test("rechaza una entrada con plugin y repo a la vez", () => {
+  test("rejects an entry with both plugin and repo", () => {
     const text = JSON.stringify({ sources: [{ plugin: "a@b", repo: "x/y" }] });
     assert.throws(() => parseManifest(text), /"plugin":"a@b"/);
   });
 
-  test("rechaza una entrada sin ninguna fuente", () => {
+  test("rejects an entry with no source", () => {
     assert.throws(() => parseManifest(JSON.stringify({ sources: [{ skills: ["x"] }] })), /skills/);
   });
 
-  test("rechaza un manifiesto sin lista de fuentes", () => {
+  test("rejects a manifest without a sources list", () => {
     assert.throws(() => parseManifest("{}"), /sources/);
   });
 });
 
 describe("resolvePluginSource", () => {
-  test("plugin con url y sha, como superpowers", () => {
+  test("plugin with url and sha, like superpowers", () => {
     const entry = {
       name: "superpowers",
       source: { source: "url", url: "https://github.com/obra/superpowers.git", sha: SUPERPOWERS_SHA },
@@ -68,7 +68,7 @@ describe("resolvePluginSource", () => {
     });
   });
 
-  test("plugin con ruta relativa vive en el repo del marketplace", () => {
+  test("plugin with a relative path lives in the marketplace repo", () => {
     const entry = { name: "frontend-design", source: "./plugins/frontend-design" };
     assert.deepEqual(resolvePluginSource(entry, MARKETPLACE), {
       repo: MARKETPLACE,
@@ -76,7 +76,7 @@ describe("resolvePluginSource", () => {
     });
   });
 
-  test("plugin de GitHub con ref y sha", () => {
+  test("GitHub plugin with ref and sha", () => {
     const entry = { name: "x", source: { source: "github", repo: "o/r", ref: "v1", sha: "abc" } };
     assert.deepEqual(resolvePluginSource(entry, MARKETPLACE), {
       repo: "https://github.com/o/r.git",
@@ -86,7 +86,7 @@ describe("resolvePluginSource", () => {
     });
   });
 
-  test("lanza si el tipo de fuente no se conoce", () => {
+  test("throws if the source type is unknown", () => {
     const entry = { name: "x", source: { source: "npm", package: "x" } };
     assert.throws(() => resolvePluginSource(entry, MARKETPLACE), /npm/);
   });
@@ -95,103 +95,103 @@ describe("resolvePluginSource", () => {
 describe("rewritePluginRefs", () => {
   const installed = new Set(["writing-plans"]);
 
-  test("reemplaza solo la referencia del plugin propio", () => {
+  test("replaces only the reference of its own plugin", () => {
     assert.equal(
-      rewritePluginRefs("usá superpowers:writing-plans y otro:writing-plans", "superpowers", installed),
-      "usá writing-plans y otro:writing-plans",
+      rewritePluginRefs("use superpowers:writing-plans and other:writing-plans", "superpowers", installed),
+      "use writing-plans and other:writing-plans",
     );
   });
 
-  test("no toca nada si la skill no está instalada", () => {
-    const text = "usá superpowers:writing-plans";
+  test("touches nothing if the skill is not installed", () => {
+    const text = "use superpowers:writing-plans";
     assert.equal(rewritePluginRefs(text, "superpowers", new Set()), text);
   });
 
-  test("no toca un plugin cuyo nombre termina igual", () => {
-    const text = "usá my-superpowers:writing-plans";
+  test("does not touch a plugin whose name ends the same", () => {
+    const text = "use my-superpowers:writing-plans";
     assert.equal(rewritePluginRefs(text, "superpowers", installed), text);
   });
 
-  test("no toca URLs con la forma plugin:skill", () => {
-    const text = "https://x.dev/superpowers:writing-plans y superpowers://writing-plans";
+  test("does not touch URLs shaped like plugin:skill", () => {
+    const text = "https://x.dev/superpowers:writing-plans and superpowers://writing-plans";
     assert.equal(rewritePluginRefs(text, "superpowers", installed), text);
   });
 
-  test("reescribe dentro de backticks y del texto de un link", () => {
+  test("rewrites inside backticks and link text", () => {
     assert.equal(
-      rewritePluginRefs("`superpowers:writing-plans` y [superpowers:writing-plans](a.md)", "superpowers", installed),
-      "`writing-plans` y [writing-plans](a.md)",
+      rewritePluginRefs("`superpowers:writing-plans` and [superpowers:writing-plans](a.md)", "superpowers", installed),
+      "`writing-plans` and [writing-plans](a.md)",
     );
   });
 });
 
 describe("findCollisions", () => {
-  test("avisa de un nombre repetido entre orígenes y de uno igual a una skill propia", () => {
+  test("reports a name repeated across origins and one equal to an own skill", () => {
     const incoming = new Map([
-      ["brainstorming", ["superpowers@a", "otro@b"]],
+      ["brainstorming", ["superpowers@a", "other@b"]],
       ["start-issue", "superpowers@a"],
-      ["limpia", "superpowers@a"],
+      ["cleanup", "superpowers@a"],
     ]);
     const messages = findCollisions(incoming, new Set(["start-issue"]));
     assert.equal(messages.length, 2);
-    assert.match(messages[0], /excluí "brainstorming" en el manifiesto/);
-    assert.match(messages[1], /excluí "start-issue" en el manifiesto/);
+    assert.match(messages[0], /exclude "brainstorming" in the manifest/);
+    assert.match(messages[1], /exclude "start-issue" in the manifest/);
   });
 
-  test("sin colisiones devuelve una lista vacía", () => {
+  test("without collisions returns an empty list", () => {
     assert.deepEqual(findCollisions(new Map([["a", "x"]]), new Set(["b"])), []);
   });
 });
 
 describe("hashFiles", () => {
-  const a = { path: "SKILL.md", content: Buffer.from("uno") };
-  const b = { path: "refs/x.md", content: Buffer.from("dos") };
+  const a = { path: "SKILL.md", content: Buffer.from("one") };
+  const b = { path: "refs/x.md", content: Buffer.from("two") };
 
-  test("no depende del orden de entrada", () => {
+  test("does not depend on input order", () => {
     assert.equal(hashFiles([a, b]), hashFiles([b, a]));
   });
 
-  test("tiene el formato sha256-<hex>", () => {
+  test("has the sha256-<hex> format", () => {
     assert.match(hashFiles([a]), /^sha256-[0-9a-f]{64}$/);
   });
 
-  test("cambia con el contenido y con la ruta", () => {
+  test("changes with the content and the path", () => {
     const base = hashFiles([a]);
-    assert.notEqual(base, hashFiles([{ ...a, content: Buffer.from("otro") }]));
-    assert.notEqual(base, hashFiles([{ ...a, path: "OTRO.md" }]));
+    assert.notEqual(base, hashFiles([{ ...a, content: Buffer.from("other") }]));
+    assert.notEqual(base, hashFiles([{ ...a, path: "OTHER.md" }]));
   });
 
-  test("cambia si solo cambia el bit de ejecución", () => {
+  test("changes if only the executable bit changes", () => {
     assert.notEqual(hashFiles([a]), hashFiles([{ ...a, executable: true }]));
   });
 
-  test("un archivo no ejecutable hashea igual que sin el campo", () => {
+  test("a non-executable file hashes the same as without the field", () => {
     assert.equal(hashFiles([a]), hashFiles([{ ...a, executable: false }]));
   });
 });
 
 describe("diffLock", () => {
-  test("detecta una faltante, una modificada y una sobrante", () => {
+  test("detects a missing, a modified and an extra one", () => {
     const lock = { skills: { a: { hash: "h1" }, b: { hash: "h2" }, c: { hash: "h3" } } };
     const actual = new Map([
       ["a", "h1"],
-      ["b", "distinto"],
+      ["b", "different"],
       ["d", "h4"],
     ]);
     assert.deepEqual(diffLock(lock, actual), { missing: ["c"], modified: ["b"], extra: ["d"] });
   });
 
-  test("un lock sin skills no rompe", () => {
+  test("a lock without skills does not break", () => {
     assert.deepEqual(diffLock({}, new Map()), { missing: [], modified: [], extra: [] });
   });
 });
 
 /**
- * Arma lo que se leyó de una máquina de prueba: dos plugins de `fake` (uno con
- * skills y otro solo con comandos), una skill local y la carpeta `synced/`.
+ * Builds what was read from a test machine: two `fake` plugins (one with
+ * skills and one with commands only), a local skill and the `synced/` folder.
  *
- * @param overrides - Campos que pisan los de la máquina base.
- * @returns La máquina, con la forma que recibe `listCandidates`.
+ * @param overrides - Fields that override those of the base machine.
+ * @returns The machine, shaped as `listCandidates` receives it.
  */
 function machine(overrides = {}) {
   return {
@@ -206,64 +206,64 @@ function machine(overrides = {}) {
       ["/c/demo", ["alpha", "beta"]],
       ["/c/cmds", null],
     ]),
-    local: ["mi-skill", "synced"],
+    local: ["my-skill", "synced"],
     marketplaces: new Set(["fake"]),
     ...overrides,
   };
 }
 
 describe("listCandidates", () => {
-  test("lista plugins con sus skills y skills locales; un plugin sin skills/ no se puede elegir", () => {
+  test("lists plugins with their skills and local skills; a plugin without skills/ cannot be picked", () => {
     assert.deepEqual(listCandidates(machine(), undefined), [
       { id: "demo@fake", kind: "plugin", skills: ["alpha", "beta"] },
-      { id: "cmds@fake", kind: "plugin", skills: [], note: "sin skills" },
-      { id: "mi-skill", kind: "local", skills: ["mi-skill"] },
+      { id: "cmds@fake", kind: "plugin", skills: [], note: "no skills" },
+      { id: "my-skill", kind: "local", skills: ["my-skill"] },
     ]);
   });
 
-  test("no lista lo que ya está en el manifiesto", () => {
-    const manifest = { sources: [{ plugin: "demo@fake" }, { local: "mi-skill" }] };
+  test("does not list what is already in the manifest", () => {
+    const manifest = { sources: [{ plugin: "demo@fake" }, { local: "my-skill" }] };
     assert.deepEqual(
       listCandidates(machine(), manifest).map((candidate) => candidate.id),
       ["cmds@fake"],
     );
   });
 
-  test("un marketplace que no se pudo leer marca sus plugins y el resto sigue", () => {
+  test("a marketplace that could not be read flags its plugins and the rest goes on", () => {
     const candidates = listCandidates(machine({ marketplaces: new Set() }), undefined);
-    assert.equal(candidates[0].note, "no pude leer el marketplace fake");
-    assert.deepEqual(candidates[2], { id: "mi-skill", kind: "local", skills: ["mi-skill"] });
+    assert.equal(candidates[0].note, "could not read marketplace fake");
+    assert.deepEqual(candidates[2], { id: "my-skill", kind: "local", skills: ["my-skill"] });
   });
 
-  test("usa la entrada cuya carpeta existe y prefiere la de scope user", () => {
+  test("uses the entry whose folder exists and prefers the user scope", () => {
     const installed = {
       plugins: {
         "demo@fake": [
-          { scope: "project", installPath: "/c/viejo" },
-          { scope: "project", installPath: "/c/proyecto" },
-          { scope: "user", installPath: "/c/usuario" },
+          { scope: "project", installPath: "/c/old" },
+          { scope: "project", installPath: "/c/project" },
+          { scope: "user", installPath: "/c/user" },
         ],
       },
     };
     const skillDirs = new Map([
-      ["/c/proyecto", ["vieja"]],
-      ["/c/usuario", ["nueva"]],
+      ["/c/project", ["old"]],
+      ["/c/user", ["new"]],
     ]);
     const [candidate] = listCandidates(machine({ installed, skillDirs, local: [] }), undefined);
-    assert.deepEqual(candidate.skills, ["nueva"]);
+    assert.deepEqual(candidate.skills, ["new"]);
   });
 
-  test("sin installed_plugins.json ni skills locales no hay candidatos", () => {
+  test("without installed_plugins.json or local skills there are no candidates", () => {
     assert.deepEqual(listCandidates(machine({ installed: undefined, local: [] }), undefined), []);
   });
 });
 
 describe("parseSelect", () => {
-  test("separa fuentes por coma y skills sueltas con +", () => {
-    assert.deepEqual(parseSelect("demo@fake,mi-skill, otro@m:a+b"), [
+  test("splits sources by comma and single skills by +", () => {
+    assert.deepEqual(parseSelect("demo@fake,my-skill, other@m:a+b"), [
       { id: "demo@fake" },
-      { id: "mi-skill" },
-      { id: "otro@m", skills: ["a", "b"] },
+      { id: "my-skill" },
+      { id: "other@m", skills: ["a", "b"] },
     ]);
   });
 });
@@ -272,29 +272,29 @@ describe("menuOptions", () => {
   const candidates = [
     { id: "superpowers@claude-plugins-official", kind: "plugin", skills: ["brainstorming", "writing-plans"] },
     { id: "frontend-design@claude-plugins-official", kind: "plugin", skills: ["frontend-design"] },
-    { id: "code-review@claude-plugins-official", kind: "plugin", skills: [], note: "sin skills" },
-    { id: "mia", kind: "local", skills: ["mia"] },
+    { id: "code-review@claude-plugins-official", kind: "plugin", skills: [], note: "no skills" },
+    { id: "mine", kind: "local", skills: ["mine"] },
   ];
 
-  test("una línea corta por elegible y los no elegibles aparte", () => {
+  test("one short line per pickable and the non-pickable ones apart", () => {
     assert.deepEqual(menuOptions(candidates), {
       options: [
         { value: "superpowers@claude-plugins-official", label: "superpowers · 2 skills" },
         { value: "frontend-design@claude-plugins-official", label: "frontend-design · 1 skill" },
-        { value: "mia", label: "mia · tuya" },
+        { value: "mine", label: "mine · yours" },
       ],
-      hidden: ["code-review (sin skills)"],
+      hidden: ["code-review (no skills)"],
     });
   });
 
-  test("dos plugins con el mismo nombre en distintos marketplaces muestran el marketplace", () => {
+  test("two plugins with the same name in different marketplaces show the marketplace", () => {
     const twins = [
-      { id: "x@uno", kind: "plugin", skills: ["a"] },
-      { id: "x@dos", kind: "plugin", skills: ["a"] },
+      { id: "x@one", kind: "plugin", skills: ["a"] },
+      { id: "x@two", kind: "plugin", skills: ["a"] },
     ];
     assert.deepEqual(
       menuOptions(twins).options.map((option) => option.label),
-      ["x (uno) · 1 skill", "x (dos) · 1 skill"],
+      ["x (one) · 1 skill", "x (two) · 1 skill"],
     );
   });
 });
@@ -302,13 +302,13 @@ describe("menuOptions", () => {
 describe("pickSummary", () => {
   const candidates = [
     { id: "superpowers@claude-plugins-official", kind: "plugin", skills: ["a", "b", "c"] },
-    { id: "mia", kind: "local", skills: ["mia"] },
+    { id: "mine", kind: "local", skills: ["mine"] },
   ];
 
-  test("plugin entero, skills sueltas y local", () => {
+  test("whole plugin, single skills and local", () => {
     assert.equal(
-      pickSummary([{ id: "superpowers@claude-plugins-official" }, { id: "mia" }], candidates),
-      "superpowers (todas, 3)\nmia (tuya)",
+      pickSummary([{ id: "superpowers@claude-plugins-official" }, { id: "mine" }], candidates),
+      "superpowers (all, 3)\nmine (yours)",
     );
     assert.equal(
       pickSummary([{ id: "superpowers@claude-plugins-official", skills: ["a", "c"] }], candidates),
@@ -318,22 +318,22 @@ describe("pickSummary", () => {
 });
 
 describe("picksToSources", () => {
-  /** Candidatos de una máquina de prueba, con uno que no se puede elegir. */
+  /** Candidates of a test machine, one of them not pickable. */
   const candidates = listCandidates(machine(), undefined);
 
-  test("traduce plugins enteros, skills sueltas y locales a fuentes del manifiesto", () => {
-    const picks = [{ id: "demo@fake", skills: ["beta"] }, { id: "mi-skill" }];
-    assert.deepEqual(picksToSources(picks, candidates), [{ plugin: "demo@fake", skills: ["beta"] }, { local: "mi-skill" }]);
+  test("translates whole plugins, single skills and locals into manifest sources", () => {
+    const picks = [{ id: "demo@fake", skills: ["beta"] }, { id: "my-skill" }];
+    assert.deepEqual(picksToSources(picks, candidates), [{ plugin: "demo@fake", skills: ["beta"] }, { local: "my-skill" }]);
     assert.deepEqual(picksToSources([{ id: "demo@fake" }], candidates), [{ plugin: "demo@fake" }]);
   });
 
-  test("rechaza lo que no está, lo que tiene nota y skills que el plugin no trae", () => {
-    assert.throws(() => picksToSources([{ id: "nada@fake" }], candidates), /nada@fake/);
-    assert.throws(() => picksToSources([{ id: "cmds@fake" }], candidates), /sin skills/);
+  test("rejects what is missing, what has a note and skills the plugin does not provide", () => {
+    assert.throws(() => picksToSources([{ id: "nothing@fake" }], candidates), /nothing@fake/);
+    assert.throws(() => picksToSources([{ id: "cmds@fake" }], candidates), /no skills/);
     assert.throws(() => picksToSources([{ id: "demo@fake", skills: ["zeta"] }], candidates), /zeta/);
   });
 
-  test("una elección vacía es un error", () => {
-    assert.throws(() => picksToSources([], candidates), /nada/);
+  test("an empty pick is an error", () => {
+    assert.throws(() => picksToSources([], candidates), /nothing/);
   });
 });

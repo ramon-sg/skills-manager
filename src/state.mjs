@@ -1,9 +1,9 @@
 /**
- * @file Estado de las skills de terceros en el repo y en la máquina: rutas del
- * manifiesto, el lock y las carpetas de skills; lectura y escritura del
- * manifiesto, lectura del lock, hash de lo instalado, a qué fuente pertenece
- * cada skill del lock y los marketplaces de `~/.claude/plugins`. Lo comparten
- * `cli.mjs` (install, update, check, list) y `pick.mjs` (init, add).
+ * @file State of the third-party skills in the repo and on the machine: paths of
+ * the manifest, the lock and the skills folders; reading and writing the
+ * manifest, reading the lock, hashing what is installed, which source each
+ * lock skill belongs to, and the marketplaces in `~/.claude/plugins`. Shared
+ * by `cli.mjs` (install, update, check, list) and `pick.mjs` (init, add).
  */
 import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -11,53 +11,53 @@ import path from "node:path";
 import { assertSkillName, walk } from "./git.mjs";
 import { hashFiles, parseManifest } from "./lib.mjs";
 
-/** Manifiesto de skills de terceros, relativo a la raíz del repo. */
+/** Third-party skills manifest, relative to the repo root. */
 export const MANIFEST = ".agents/skills.json";
 
-/** Lock que escriben solo estos comandos, relativo a la raíz del repo. */
+/** Lock written only by these commands, relative to the repo root. */
 export const LOCK = ".agents/skills.lock.json";
 
-/** Carpeta donde se instalan las skills, propias y de terceros. */
+/** Folder where skills are installed, own and third-party. */
 export const SKILLS_DIR = ".agents/skills";
 
-/** Archivo que marca una carpeta como skill. */
+/** File that marks a folder as a skill. */
 export const SKILL_FILE = "SKILL.md";
 
-/** Carpeta de las skills sueltas de la máquina, relativa al home. */
+/** Folder of the machine's standalone skills, relative to home. */
 export const LOCAL_SKILLS = ".claude/skills";
 
-/** Carpeta de plugins y marketplaces de Claude Code, relativa al home. */
+/** Claude Code plugins and marketplaces folder, relative to home. */
 export const PLUGINS_DIR = ".claude/plugins";
 
-/** Valor de `source` en el lock para las skills copiadas de la máquina. */
+/** `source` value in the lock for skills copied from the machine. */
 export const LOCAL_SOURCE = "local";
 
 /**
- * Lee un JSON del disco.
+ * Reads a JSON file from disk.
  *
- * @param file - Ruta del archivo.
- * @returns El contenido parseado.
- * @throws {Error} Si no se puede leer o no es JSON.
+ * @param file - File path.
+ * @returns The parsed content.
+ * @throws {Error} If it cannot be read or is not JSON.
  */
 export function readJson(file) {
   return JSON.parse(readFileSync(file, "utf8"));
 }
 
 /**
- * Dice si una ruta es un archivo común (no symlink).
+ * Tells whether a path is a regular file (not a symlink).
  *
- * @param file - Ruta a mirar.
- * @returns `true` si existe y es un archivo regular.
+ * @param file - Path to check.
+ * @returns `true` if it exists and is a regular file.
  */
 export function isRegularFile(file) {
   return existsSync(file) && lstatSync(file).isFile();
 }
 
 /**
- * Lee un JSON que puede faltar o estar roto, sin cortar.
+ * Reads a JSON file that may be missing or broken, without stopping.
  *
- * @param file - Ruta del archivo.
- * @returns El contenido parseado, o `undefined` si no está o no se puede leer.
+ * @param file - File path.
+ * @returns The parsed content, or `undefined` if it is missing or unreadable.
  */
 function readJsonIfValid(file) {
   try {
@@ -68,11 +68,11 @@ function readJsonIfValid(file) {
 }
 
 /**
- * Lee los marketplaces instalados en la máquina, con su repo y sus plugins. Un
- * marketplace que no se puede leer no aparece; el resto sigue.
+ * Reads the marketplaces installed on the machine, with their repo and plugins.
+ * A marketplace that cannot be read is left out; the rest goes on.
  *
- * @param home - Home donde está `.claude/plugins`.
- * @returns Nombre del marketplace a `{ repo, plugins }`; vacío si no hay ninguno.
+ * @param home - Home that holds `.claude/plugins`.
+ * @returns Marketplace name to `{ repo, plugins }`; empty if there are none.
  */
 export function loadMarketplaces(home) {
   const base = path.join(home, PLUGINS_DIR);
@@ -90,10 +90,10 @@ export function loadMarketplaces(home) {
 }
 
 /**
- * Clave con la que una fuente del manifiesto figura en el lock.
+ * Key under which a manifest source appears in the lock.
  *
- * @param entry - Fuente del manifiesto.
- * @returns `plugin@marketplace`, `local` o `repo/path`.
+ * @param entry - Manifest source.
+ * @returns `plugin@marketplace`, `local` or `repo/path`.
  */
 export function sourceKey(entry) {
   if (entry.local !== undefined) {
@@ -103,21 +103,21 @@ export function sourceKey(entry) {
 }
 
 /**
- * Nombre de una fuente para los mensajes: distingue una local de otra.
+ * Name of a source for messages: tells one local from another.
  *
- * @param entry - Fuente del manifiesto.
- * @returns `local:<nombre>` o la clave del lock.
+ * @param entry - Manifest source.
+ * @returns `local:<name>` or the lock key.
  */
 export function sourceLabel(entry) {
   return entry.local === undefined ? sourceKey(entry) : `${LOCAL_SOURCE}:${entry.local}`;
 }
 
 /**
- * Nombres del lock que vienen de una fuente; una local solo es dueña de la skill con su nombre.
+ * Lock names that come from a source; a local only owns the skill with its own name.
  *
- * @param lock - Lock leído.
- * @param entry - Fuente del manifiesto.
- * @returns Los nombres, en el orden del lock.
+ * @param lock - Lock read.
+ * @param entry - Manifest source.
+ * @returns The names, in lock order.
  */
 export function lockedNames(lock, entry) {
   const key = sourceKey(entry);
@@ -127,11 +127,11 @@ export function lockedNames(lock, entry) {
 }
 
 /**
- * Skills del lock que ya no pertenecen a ninguna fuente del manifiesto.
+ * Lock skills that no longer belong to any manifest source.
  *
- * @param lock - Lock leído.
- * @param manifest - Manifiesto leído.
- * @returns Los nombres, en el orden del lock.
+ * @param lock - Lock read.
+ * @param manifest - Manifest read.
+ * @returns The names, in lock order.
  */
 export function staleNames(lock, manifest) {
   const owned = new Set(manifest.sources.flatMap((entry) => lockedNames(lock, entry)));
@@ -139,32 +139,32 @@ export function staleNames(lock, manifest) {
 }
 
 /**
- * Dice si dos listas tienen los mismos elementos, sin importar el orden.
+ * Tells whether two lists have the same elements, regardless of order.
  *
- * @param a - Primera lista.
- * @param b - Segunda lista.
- * @returns `true` si coinciden como conjuntos.
+ * @param a - First list.
+ * @param b - Second list.
+ * @returns `true` if they match as sets.
  */
 export function sameSet(a, b) {
   return JSON.stringify([...new Set(a)].sort()) === JSON.stringify([...new Set(b)].sort());
 }
 
 /**
- * Plugins que pide el manifiesto, en su orden.
+ * Plugins the manifest asks for, in order.
  *
- * @param manifest - Manifiesto leído.
- * @returns Las claves `plugin@marketplace`.
+ * @param manifest - Manifest read.
+ * @returns The `plugin@marketplace` keys.
  */
 export function manifestPlugins(manifest) {
   return manifest.sources.filter((entry) => entry.plugin !== undefined).map((entry) => entry.plugin);
 }
 
 /**
- * Hash del contenido instalado de una skill, o `undefined` si no está.
+ * Hash of the installed content of a skill, or `undefined` if it is missing.
  *
- * @param root - Raíz del repo.
- * @param name - Nombre de la skill.
- * @returns `sha256-<hex>` o `undefined`.
+ * @param root - Repo root.
+ * @param name - Skill name.
+ * @returns `sha256-<hex>` or `undefined`.
  */
 export function installedHash(root, name) {
   const dir = path.join(root, SKILLS_DIR, name);
@@ -172,11 +172,11 @@ export function installedHash(root, name) {
 }
 
 /**
- * Lee el lock, o uno vacío si todavía no existe.
+ * Reads the lock, or an empty one if it does not exist yet.
  *
- * @param root - Raíz del repo.
+ * @param root - Repo root.
  * @returns `{ skills, plugins }`.
- * @throws {Error} Si algún nombre de skill no es válido.
+ * @throws {Error} If any skill name is not valid.
  */
 export function readLock(root) {
   const file = path.join(root, LOCK);
@@ -187,11 +187,11 @@ export function readLock(root) {
 }
 
 /**
- * Lee y valida el manifiesto, o `undefined` si no hay.
+ * Reads and validates the manifest, or `undefined` if there is none.
  *
- * @param root - Raíz del repo.
- * @returns El manifiesto parseado o `undefined`.
- * @throws {Error} Si no es un manifiesto válido.
+ * @param root - Repo root.
+ * @returns The parsed manifest or `undefined`.
+ * @throws {Error} If it is not a valid manifest.
  */
 export function readManifest(root) {
   const file = path.join(root, MANIFEST);
@@ -199,11 +199,11 @@ export function readManifest(root) {
 }
 
 /**
- * Escribe el manifiesto con formato estable.
+ * Writes the manifest with a stable format.
  *
- * @param root - Raíz del repo.
- * @param manifest - Manifiesto a escribir; se valida antes.
- * @throws {Error} Si no es un manifiesto válido.
+ * @param root - Repo root.
+ * @param manifest - Manifest to write; validated first.
+ * @throws {Error} If it is not a valid manifest.
  */
 export function writeManifest(root, manifest) {
   const text = `${JSON.stringify(manifest, null, 2)}\n`;
@@ -213,28 +213,28 @@ export function writeManifest(root, manifest) {
   writeFileSync(file, text);
 }
 
-/** Configuración de Claude Code del proyecto, relativa a la raíz del repo. */
+/** Project Claude Code settings, relative to the repo root. */
 export const PROJECT_SETTINGS = ".claude/settings.json";
 
 /**
- * Deja desactivados en el proyecto los plugins de los que se copiaron skills, para
- * que no aparezcan dos veces (la copia del repo y la del plugin con prefijo). Solo
- * administra las claves de `enabledPlugins` que son suyas: pone `false` a cada
- * plugin del lock nuevo y saca el `false` de los que estaban en el lock anterior y
- * ya no están. Lo que puso otra persona (un `true`, un plugin que nunca estuvo en
- * el lock) no se toca, y el resto del archivo (hooks, etc.) queda igual.
+ * Leaves disabled in the project the plugins whose skills were copied, so they
+ * do not show up twice (the repo copy and the prefixed plugin one). It only
+ * manages the `enabledPlugins` keys that are its own: sets `false` on each
+ * plugin of the new lock and removes the `false` of those in the previous lock
+ * that are gone. What someone else set (a `true`, a plugin that was never in
+ * the lock) is left alone, and the rest of the file (hooks, etc.) stays as is.
  *
- * @param root - Raíz del repo.
- * @param previous - Plugins del lock anterior (los que la herramienta ya administraba).
- * @param plugins - Plugins del lock nuevo.
- * @returns `true` si se escribió el archivo.
- * @throws {Error} Si `.claude/settings.json` existe pero no es un JSON de objeto.
+ * @param root - Repo root.
+ * @param previous - Plugins of the previous lock (those the tool already managed).
+ * @param plugins - Plugins of the new lock.
+ * @returns `true` if the file was written.
+ * @throws {Error} If `.claude/settings.json` exists but is not a JSON object.
  */
 export function syncProjectSettings(root, previous, plugins) {
   const file = path.join(root, PROJECT_SETTINGS);
   const settings = existsSync(file) ? readJson(file) : {};
   if (settings === null || typeof settings !== "object" || Array.isArray(settings)) {
-    throw new Error(`${PROJECT_SETTINGS} tiene que ser un objeto JSON.`);
+    throw new Error(`${PROJECT_SETTINGS} must be a JSON object.`);
   }
   const enabled = { ...settings.enabledPlugins };
   for (const plugin of previous.filter((name) => !plugins.includes(name) && enabled[name] === false)) {

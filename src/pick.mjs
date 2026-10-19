@@ -1,9 +1,10 @@
 /**
- * @file `skills:init` y `skills:add`: leen lo instalado en la máquina (plugins
- * de `~/.claude/plugins/installed_plugins.json` y skills de `~/.claude/skills`),
- * dejan elegir (con el menú de casillas de `prompt.mjs` si hay TTY, o con
- * `--candidates` / `--select`), suman la elección al manifiesto y corren
- * `install`. Si `install` falla, el manifiesto vuelve a como estaba.
+ * @file `skills-manager init` and `skills-manager add`: read what is installed on the
+ * machine (plugins from `~/.claude/plugins/installed_plugins.json` and skills
+ * from `~/.claude/skills`), let the user pick (with the checkbox menu of
+ * `prompt.mjs` if there is a TTY, or with `--candidates` / `--select`), add the
+ * pick to the manifest and run `install`. If `install` fails, the manifest goes
+ * back to how it was.
  */
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -21,33 +22,33 @@ import {
   writeManifest,
 } from "./state.mjs";
 
-/** Opción que imprime los candidatos en JSON. */
+/** Option that prints the candidates as JSON. */
 const CANDIDATES_FLAG = "--candidates";
 
-/** Opción que elige sin preguntar. */
+/** Option that picks without asking. */
 const SELECT_FLAG = "--select";
 
-/** Código de salida de un error de uso. */
+/** Exit code of a usage error. */
 const USAGE_EXIT = 2;
 
-/** Cómo se usa sin TTY. */
-const USAGE = `Sin terminal interactiva usá ${CANDIDATES_FLAG} para ver qué hay, o ${SELECT_FLAG} plugin@marketplace,skill-local (plugin@marketplace:skill1+skill2 para skills sueltas).`;
+/** How to use it without a TTY. */
+const USAGE = `Without an interactive terminal use ${CANDIDATES_FLAG} to see what is available, or ${SELECT_FLAG} plugin@marketplace,local-skill (plugin@marketplace:skill1+skill2 for individual skills).`;
 
 /**
- * Arma un error de uso, que termina el CLI con 2.
+ * Builds a usage error, which ends the CLI with 2.
  *
- * @param message - Qué faltó.
- * @returns El error con `exitCode`.
+ * @param message - What was missing.
+ * @returns The error with `exitCode`.
  */
 function usageError(message) {
   return Object.assign(new Error(message), { exitCode: USAGE_EXIT });
 }
 
 /**
- * Lista las carpetas de skill (con `SKILL.md`) de un directorio.
+ * Lists the skill folders (with `SKILL.md`) of a directory.
  *
- * @param dir - Directorio a mirar.
- * @returns Los nombres ordenados, o `null` si el directorio no existe.
+ * @param dir - Directory to look at.
+ * @returns The sorted names, or `null` if the directory does not exist.
  */
 function skillFolders(dir) {
   if (!existsSync(dir)) {
@@ -59,11 +60,11 @@ function skillFolders(dir) {
 }
 
 /**
- * Lee de la máquina lo que necesita `listCandidates`.
+ * Reads from the machine what `listCandidates` needs.
  *
- * @param home - Home de la máquina.
+ * @param home - Machine home.
  * @returns `{ installed, skillDirs, local, marketplaces }`.
- * @throws {Error} Si `installed_plugins.json` existe pero no es JSON.
+ * @throws {Error} If `installed_plugins.json` exists but is not JSON.
  */
 export function readMachine(home) {
   const installedFile = path.join(home, PLUGINS_DIR, "installed_plugins.json");
@@ -81,19 +82,19 @@ export function readMachine(home) {
 }
 
 /**
- * Decide qué se eligió: por `--select`, o preguntando si hay TTY.
+ * Decides what was picked: through `--select`, or by asking if there is a TTY.
  *
- * @param args - Argumentos del subcomando.
- * @param candidates - Lo que devuelve `listCandidates`.
- * @returns Lo elegido.
- * @throws {Error} De uso (sale con 2) si no hay TTY ni `--select`, o `--select` no trae valor.
+ * @param args - Subcommand arguments.
+ * @param candidates - What `listCandidates` returns.
+ * @returns What was picked.
+ * @throws {Error} Usage error (exits with 2) if there is no TTY nor `--select`, or `--select` has no value.
  */
 async function choose(args, candidates) {
   const inline = args.find((arg) => arg.startsWith(`${SELECT_FLAG}=`));
   const index = args.indexOf(SELECT_FLAG);
   const value = inline?.slice(SELECT_FLAG.length + 1) ?? (index === -1 ? undefined : args[index + 1]);
   if (index !== -1 && (value === undefined || value.startsWith("--"))) {
-    throw usageError(`${SELECT_FLAG} necesita un valor. ${USAGE}`);
+    throw usageError(`${SELECT_FLAG} needs a value. ${USAGE}`);
   }
   if (value !== undefined) {
     return parseSelect(value);
@@ -105,21 +106,21 @@ async function choose(args, candidates) {
 }
 
 /**
- * Corre `init` o `add`: elige de lo instalado, lo suma al manifiesto e instala.
+ * Runs `init` or `add`: picks from what is installed, adds it to the manifest and installs.
  *
- * @param root - Raíz del repo.
- * @param opts - `{ init, args, home, install }`; `install` corre la instalación.
- * @throws {Error} Si `init` encuentra un manifiesto, `add` no lo encuentra, la
- * elección no es válida o falla la instalación (con el manifiesto ya restaurado).
+ * @param root - Repo root.
+ * @param opts - `{ init, args, home, install }`; `install` runs the installation.
+ * @throws {Error} If `init` finds a manifest, `add` does not find one, the
+ * pick is not valid or the installation fails (with the manifest already restored).
  */
 export async function commandPick(root, { init, args, home, install }) {
   const file = path.join(root, MANIFEST);
   if (init && existsSync(file)) {
-    throw new Error(`${MANIFEST} ya existe; usá skills:add`);
+    throw new Error(`${MANIFEST} already exists; use skills-manager add`);
   }
   const manifest = readManifest(root);
   if (!init && manifest === undefined) {
-    throw new Error(`No hay ${MANIFEST}; empezá con skills:init`);
+    throw new Error(`No ${MANIFEST} found; start with skills-manager init`);
   }
   const candidates = listCandidates(readMachine(home), manifest);
   if (args.includes(CANDIDATES_FLAG)) {

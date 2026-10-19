@@ -31,16 +31,14 @@ import {
   loadMarketplaces,
   LOCAL_SKILLS,
   LOCAL_SOURCE,
-  LOCK,
   lockedNames,
-  MANIFEST,
   manifestPlugins,
   readJson,
   readLock,
   readManifest,
   sameSet,
   SKILL_FILE,
-  SKILLS_DIR,
+  resolvePaths,
   sourceKey,
   sourceLabel,
   staleNames,
@@ -86,16 +84,27 @@ function describeSource(entry, marketplaces) {
 }
 
 /**
+ * Shows a managed path relative to the repo root, for messages.
+ *
+ * @param paths - Paths from `resolvePaths`.
+ * @param file - Absolute path under the repo root.
+ * @returns The path relative to the root.
+ */
+function relativeTo(paths, file) {
+  return path.relative(path.dirname(path.dirname(paths.manifest)), file);
+}
+
+/**
  * Tells whether an installed skill lacks the lock's hash. One that is not on
  * disk does not count as edited.
  *
- * @param root - Repo root.
+ * @param paths - Paths from `resolvePaths`.
  * @param lock - Lock read.
  * @param name - Skill to check; must be in the lock.
  * @returns `true` if it is on disk with different content.
  */
-function isEdited(root, lock, name) {
-  return ![undefined, lock.skills[name].hash].includes(installedHash(root, name));
+function isEdited(paths, lock, name) {
+  return ![undefined, lock.skills[name].hash].includes(installedHash(paths, name));
 }
 
 /**
@@ -103,16 +112,16 @@ function isEdited(root, lock, name) {
  * out: delete it and install (goes back to the lock version) or update it
  * (moves to the latest published).
  *
- * @param root - Repo root.
+ * @param paths - Paths from `resolvePaths`.
  * @param lock - Lock read.
  * @param names - Skills to check; those not on disk do not count.
  * @throws {Error} If any was edited by hand.
  */
-function assertUntouched(root, lock, names) {
-  const edited = names.find((name) => isEdited(root, lock, name));
+function assertUntouched(paths, lock, names) {
+  const edited = names.find((name) => isEdited(paths, lock, name));
   if (edited !== undefined) {
     throw new Error(
-      `"${edited}" was edited by hand: to go back to the lock version, rm -rf ${SKILLS_DIR}/${edited} && skills-manager install; ` +
+      `"${edited}" was edited by hand: to go back to the lock version, rm -rf ${relativeTo(paths, path.join(paths.skillsDir, edited))} && skills-manager install; ` +
         `to overwrite it with the latest published, skills-manager update ${edited}`,
     );
   }
@@ -192,13 +201,13 @@ function collectLocal(home, name) {
  * `update` leave it alone while it is on disk.
  *
  * @param entry - `local` source of the manifest.
- * @param context - `{ root, lock, home, update }`.
+ * @param context - `{ paths, lock, home, update }`.
  * @returns Plan with `key`, `entry`, `names` and, if it must be copied, `skills`.
  * @throws {Error} If it must be copied and is not on the machine.
  */
-function planLocal(entry, { root, lock, home, update }) {
+function planLocal(entry, { paths, lock, home, update }) {
   const names = lockedNames(lock, entry);
-  if (names.length > 0 && update !== entry.local && installedHash(root, entry.local) !== undefined) {
+  if (names.length > 0 && update !== entry.local && installedHash(paths, entry.local) !== undefined) {
     return { key: LOCAL_SOURCE, entry, names };
   }
   return { key: LOCAL_SOURCE, entry, names, skills: [collectLocal(home, entry.local)] };
@@ -210,7 +219,7 @@ function planLocal(entry, { root, lock, home, update }) {
  * published (new or requested in `update`).
  *
  * @param entry - Manifest source.
- * @param context - `{ root, lock, home, marketplaces, update }`.
+ * @param context - `{ paths, lock, home, marketplaces, update }`.
  * @returns Plan with `key`, `entry`, pinned `names` and, if it must be fetched, `repo`, `commit`, `root` and `plugin`.
  * @throws {Error} If a pinned skill was edited by hand and overwriting was not requested.
  */
@@ -218,16 +227,16 @@ function planSource(entry, context) {
   if (entry.local !== undefined) {
     return planLocal(entry, context);
   }
-  const { root, lock, marketplaces, update } = context;
+  const { paths, lock, marketplaces, update } = context;
   const key = sourceKey(entry);
   const names = lockedNames(lock, entry);
   if (names.length === 0 || update === true || names.includes(update)) {
     const resolved = describeSource(entry, marketplaces);
     return { key, entry, names, repo: resolved.repo, commit: latestCommit(resolved), root: resolved.path, plugin: resolved.plugin };
   }
-  assertUntouched(root, lock, names);
+  assertUntouched(paths, lock, names);
   const listChanged = entry.skills !== undefined && !sameSet(entry.skills, names);
-  if (!listChanged && names.every((name) => installedHash(root, name) !== undefined)) {
+  if (!listChanged && names.every((name) => installedHash(paths, name) !== undefined)) {
     return { key, entry, names };
   }
   const first = lock.skills[names[0]];
@@ -241,13 +250,13 @@ function planSource(entry, context) {
  * Describes what changes: new skills, removed ones, ones that change commit and
  * the hand-edited ones that will be overwritten.
  *
- * @param root - Repo root.
+ * @param paths - Paths from `resolvePaths`.
  * @param plans - Plans with their skills already built.
  * @param stale - Lock skills whose source is no longer in the manifest.
  * @param lock - Previous lock.
  * @returns One line per change.
  */
-function describeChanges(root, plans, stale, lock) {
+function describeChanges(paths, plans, stale, lock) {
   const lines = stale.map((name) => `${name}: will be removed`);
   for (const plan of plans.filter((candidate) => candidate.skills !== undefined)) {
     const fresh = new Set(plan.skills.map((skill) => skill.name));
@@ -263,7 +272,7 @@ function describeChanges(root, plans, stale, lock) {
       if (old !== plan.commit) {
         lines.push(`${name}: ${old?.slice(0, SHORT_SHA) ?? LOCAL_SOURCE} → ${label}`);
       }
-      if (isEdited(root, lock, name)) {
+      if (isEdited(paths, lock, name)) {
         lines.push(`${name}: edited by hand, will be overwritten`);
       }
     }
@@ -290,19 +299,19 @@ function fetchPlans(plans, temp) {
 /**
  * Stops if an incoming skill clashes with an own one or with another origin's.
  *
- * @param root - Repo root.
+ * @param paths - Paths from `resolvePaths`.
  * @param plans - Plans with their skills already built.
  * @param lock - Previous lock; what is in it is not own.
  * @throws {Error} With one message per collision.
  */
-function assertNoCollisions(root, plans, lock) {
+function assertNoCollisions(paths, plans, lock) {
   const incoming = new Map();
   for (const plan of plans) {
     for (const name of plan.skills?.map((skill) => skill.name) ?? plan.names) {
       incoming.set(name, [...(incoming.get(name) ?? []), plan.key]);
     }
   }
-  const skillsRoot = path.join(root, SKILLS_DIR);
+  const skillsRoot = paths.skillsDir;
   const existing = existsSync(skillsRoot) ? readdirSync(skillsRoot) : [];
   const collisions = findCollisions(incoming, new Set(existing.filter((name) => !Object.hasOwn(lock.skills, name))));
   if (collisions.length > 0) {
@@ -324,23 +333,24 @@ function assertNoCollisions(root, plans, lock) {
 export function installAll(root, { home, update, dryRun = false, log = console.log }) {
   const manifest = readManifest(root);
   if (manifest === undefined) {
-    log(`No ${MANIFEST}: nothing to install.`);
+    log(`No ${path.relative(root, resolvePaths(root).manifest)}: nothing to install.`);
     return { changed: false };
   }
-  const lock = readLock(root);
+  const paths = resolvePaths(root, manifest);
+  const lock = readLock(paths);
   if (typeof update === "string" && !Object.hasOwn(lock.skills, update)) {
-    throw new Error(`"${update}" is not in ${LOCK}.`);
+    throw new Error(`"${update}" is not in ${path.relative(root, paths.lock)}.`);
   }
   const stale = staleNames(lock, manifest);
-  assertUntouched(root, lock, stale);
-  const context = { root, lock, home, marketplaces: loadMarketplaces(home), update };
+  assertUntouched(paths, lock, stale);
+  const context = { paths, lock, home, marketplaces: loadMarketplaces(home), update };
   const plans = manifest.sources.map((entry) => planSource(entry, context));
   const temp = mkdtempSync(path.join(tmpdir(), "skills-"));
   try {
     fetchPlans(plans, temp);
-    assertNoCollisions(root, plans, lock);
-    describeChanges(root, plans, stale, lock).forEach((line) => log(line));
-    return dryRun ? { changed: false } : writeAll(root, { plans, stale, lock, manifest });
+    assertNoCollisions(paths, plans, lock);
+    describeChanges(paths, plans, stale, lock).forEach((line) => log(line));
+    return dryRun ? { changed: false } : writeAll(paths, { plans, stale, lock, manifest });
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
@@ -350,21 +360,21 @@ export function installAll(root, { home, update, dryRun = false, log = console.l
  * Writes the fetched skills, deletes those that leave, rewrites the lock if it
  * changed and leaves the lock's plugins disabled in `.claude/settings.json`.
  *
- * @param root - Repo root.
+ * @param paths - Paths from `resolvePaths`.
  * @param state - `{ plans, stale, lock, manifest }`.
  * @returns `{ changed }`: whether the lock was written.
  */
-function writeAll(root, { plans, stale, lock, manifest }) {
+function writeAll(paths, { plans, stale, lock, manifest }) {
   const skills = { ...lock.skills };
   const remove = (name) => {
-    rmSync(path.join(root, SKILLS_DIR, name), { recursive: true, force: true });
+    rmSync(path.join(paths.skillsDir, name), { recursive: true, force: true });
     delete skills[name];
   };
   stale.forEach(remove);
   for (const plan of plans.filter((candidate) => candidate.skills !== undefined)) {
     plan.names.filter((name) => !plan.skills.some((skill) => skill.name === name)).forEach(remove);
     for (const skill of plan.skills) {
-      const dir = path.join(root, SKILLS_DIR, skill.name);
+      const dir = path.join(paths.skillsDir, skill.name);
       rmSync(dir, { recursive: true, force: true });
       for (const file of skill.files) {
         mkdirSync(path.dirname(path.join(dir, file.path)), { recursive: true });
@@ -382,8 +392,8 @@ function writeAll(root, { plans, stale, lock, manifest }) {
   }
   const sorted = Object.fromEntries(Object.keys(skills).sort().map((name) => [name, skills[name]]));
   const text = `${JSON.stringify({ skills: sorted, plugins: manifestPlugins(manifest) }, null, 2)}\n`;
-  syncProjectSettings(root, lock.plugins, manifestPlugins(manifest));
-  const file = path.join(root, LOCK);
+  syncProjectSettings(paths, lock.plugins, manifestPlugins(manifest));
+  const file = paths.lock;
   if (existsSync(file) && readFileSync(file, "utf8") === text) {
     return { changed: false };
   }
@@ -394,15 +404,15 @@ function writeAll(root, { plans, stale, lock, manifest }) {
 /**
  * Looks for differences between disk, lock and manifest.
  *
- * @param root - Repo root.
+ * @param paths - Paths from `resolvePaths`.
  * @param manifest - Manifest read.
  * @param lock - Lock read.
  * @returns `[problem, names]` pairs, only those with something in them.
  */
-function driftProblems(root, manifest, lock) {
+function driftProblems(paths, manifest, lock) {
   const actual = new Map();
   for (const name of Object.keys(lock.skills)) {
-    const hash = installedHash(root, name);
+    const hash = installedHash(paths, name);
     if (hash !== undefined) {
       actual.set(name, hash);
     }
@@ -433,7 +443,8 @@ function commandCheck(root) {
   if (manifest === undefined) {
     return;
   }
-  const problems = driftProblems(root, manifest, readLock(root));
+  const paths = resolvePaths(root, manifest);
+  const problems = driftProblems(paths, manifest, readLock(paths));
   if (problems.length === 0) {
     console.log("✅ Third-party skills match the lock and the manifest.");
     return;
@@ -452,7 +463,7 @@ function commandCheck(root) {
  * @param home - Home holding the marketplaces.
  */
 function commandList(root, home) {
-  const lock = readLock(root);
+  const lock = readLock(resolvePaths(root, readManifest(root)));
   const marketplaces = loadMarketplaces(home);
   const latest = new Map();
   for (const entry of (readManifest(root)?.sources ?? []).filter((candidate) => candidate.local === undefined)) {

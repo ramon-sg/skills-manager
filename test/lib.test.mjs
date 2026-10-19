@@ -20,6 +20,7 @@ import {
   resolvePluginSource,
   rewritePluginRefs,
 } from "../src/lib.mjs";
+import { resolvePaths } from "../src/state.mjs";
 
 /** Official marketplace repo, where plugins with a relative path live. */
 const MARKETPLACE = "https://github.com/anthropics/claude-plugins-official.git";
@@ -335,5 +336,31 @@ describe("picksToSources", () => {
 
   test("an empty pick is an error", () => {
     assert.throws(() => picksToSources([], candidates), /nothing/);
+  });
+});
+
+describe("resolvePaths", () => {
+  test("without paths it gives the default locations", () => {
+    assert.deepEqual(resolvePaths("/repo", { sources: [] }), {
+      manifest: "/repo/.agents/skills.json",
+      lock: "/repo/.agents/skills.lock.json",
+      skillsDir: "/repo/.agents/skills",
+      settings: "/repo/.claude/settings.json",
+    });
+  });
+
+  test("a configured path replaces only its own default", () => {
+    const paths = resolvePaths("/repo", { sources: [], paths: { skillsDir: "skills" } });
+    assert.equal(paths.skillsDir, "/repo/skills");
+    assert.equal(paths.lock, "/repo/.agents/skills.lock.json");
+  });
+
+  test("it works without a manifest", () => {
+    assert.equal(resolvePaths("/repo").lock, "/repo/.agents/skills.lock.json");
+  });
+
+  test("it rejects paths that climb out of the root or are absolute", () => {
+    assert.throws(() => resolvePaths("/repo", { sources: [], paths: { lock: "../x" } }), /relative/);
+    assert.throws(() => resolvePaths("/repo", { sources: [], paths: { settings: "/etc/x" } }), /relative/);
   });
 });

@@ -8,17 +8,43 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-import { assertSkillName, walk } from "./git.mjs";
+import { assertRelPath, assertSkillName, walk } from "./git.mjs";
 import { hashFiles, parseManifest } from "./lib.mjs";
 
-/** Third-party skills manifest, relative to the repo root. */
-export const MANIFEST = ".agents/skills.json";
+/** Third-party skills manifest, relative to the repo root. Fixed: `paths` is read from it. */
+const MANIFEST = ".agents/skills.json";
 
-/** Lock written only by these commands, relative to the repo root. */
-export const LOCK = ".agents/skills.lock.json";
+/** Default lock path, relative to the repo root. */
+const DEFAULT_LOCK = ".agents/skills.lock.json";
 
-/** Folder where skills are installed, own and third-party. */
-export const SKILLS_DIR = ".agents/skills";
+/** Default folder where skills are installed, own and third-party, relative to the repo root. */
+const DEFAULT_SKILLS_DIR = ".agents/skills";
+
+/** Default project Claude Code settings, relative to the repo root. */
+const DEFAULT_SETTINGS = ".claude/settings.json";
+
+/**
+ * Absolute paths of the files and folders the tool manages. The manifest is
+ * always `.agents/skills.json`; the rest can be moved with `paths` in it.
+ *
+ * @param root - Repo root.
+ * @param manifest - Manifest read, if any; its `paths` field overrides the defaults.
+ * @returns Absolute `{ manifest, lock, skillsDir, settings }`.
+ * @throws {Error} If a path in `paths` is absolute or climbs out of the root.
+ * @example
+ * resolvePaths("/repo", { sources: [], paths: { skillsDir: "skills" } }).skillsDir;
+ * // "/repo/skills"
+ */
+export function resolvePaths(root, manifest) {
+  const configured = manifest?.paths ?? {};
+  const pick = (key, fallback) => path.join(root, assertRelPath(configured[key] ?? fallback));
+  return {
+    manifest: path.join(root, MANIFEST),
+    lock: pick("lock", DEFAULT_LOCK),
+    skillsDir: pick("skillsDir", DEFAULT_SKILLS_DIR),
+    settings: pick("settings", DEFAULT_SETTINGS),
+  };
+}
 
 /** File that marks a folder as a skill. */
 export const SKILL_FILE = "SKILL.md";
@@ -162,24 +188,24 @@ export function manifestPlugins(manifest) {
 /**
  * Hash of the installed content of a skill, or `undefined` if it is missing.
  *
- * @param root - Repo root.
+ * @param paths - Paths from `resolvePaths`.
  * @param name - Skill name.
  * @returns `sha256-<hex>` or `undefined`.
  */
-export function installedHash(root, name) {
-  const dir = path.join(root, SKILLS_DIR, name);
+export function installedHash(paths, name) {
+  const dir = path.join(paths.skillsDir, name);
   return existsSync(dir) ? hashFiles(walk(dir)) : undefined;
 }
 
 /**
  * Reads the lock, or an empty one if it does not exist yet.
  *
- * @param root - Repo root.
+ * @param paths - Paths from `resolvePaths`.
  * @returns `{ skills, plugins }`.
  * @throws {Error} If any skill name is not valid.
  */
-export function readLock(root) {
-  const file = path.join(root, LOCK);
+export function readLock(paths) {
+  const file = paths.lock;
   const lock = existsSync(file) ? readJson(file) : {};
   const skills = lock.skills ?? {};
   Object.keys(skills).forEach(assertSkillName);
@@ -213,9 +239,6 @@ export function writeManifest(root, manifest) {
   writeFileSync(file, text);
 }
 
-/** Project Claude Code settings, relative to the repo root. */
-export const PROJECT_SETTINGS = ".claude/settings.json";
-
 /**
  * Leaves disabled in the project the plugins whose skills were copied, so they
  * do not show up twice (the repo copy and the prefixed plugin one). It only
@@ -224,17 +247,17 @@ export const PROJECT_SETTINGS = ".claude/settings.json";
  * that are gone. What someone else set (a `true`, a plugin that was never in
  * the lock) is left alone, and the rest of the file (hooks, etc.) stays as is.
  *
- * @param root - Repo root.
+ * @param paths - Paths from `resolvePaths`.
  * @param previous - Plugins of the previous lock (those the tool already managed).
  * @param plugins - Plugins of the new lock.
  * @returns `true` if the file was written.
- * @throws {Error} If `.claude/settings.json` exists but is not a JSON object.
+ * @throws {Error} If the settings file exists but is not a JSON object.
  */
-export function syncProjectSettings(root, previous, plugins) {
-  const file = path.join(root, PROJECT_SETTINGS);
+export function syncProjectSettings(paths, previous, plugins) {
+  const file = paths.settings;
   const settings = existsSync(file) ? readJson(file) : {};
   if (settings === null || typeof settings !== "object" || Array.isArray(settings)) {
-    throw new Error(`${PROJECT_SETTINGS} must be a JSON object.`);
+    throw new Error(`${file} must be a JSON object.`);
   }
   const enabled = { ...settings.enabledPlugins };
   for (const plugin of previous.filter((name) => !plugins.includes(name) && enabled[name] === false)) {

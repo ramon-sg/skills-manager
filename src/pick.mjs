@@ -14,10 +14,10 @@ import { askInteractively } from "./prompt.mjs";
 import {
   LOCAL_SKILLS,
   loadMarketplaces,
-  MANIFEST,
   PLUGINS_DIR,
   readJson,
   readManifest,
+  resolvePaths,
   SKILL_FILE,
   writeManifest,
 } from "./state.mjs";
@@ -114,13 +114,14 @@ async function choose(args, candidates) {
  * pick is not valid or the installation fails (with the manifest already restored).
  */
 export async function commandPick(root, { init, args, home, install }) {
-  const file = path.join(root, MANIFEST);
+  const file = resolvePaths(root).manifest;
+  const shown = path.relative(root, file);
   if (init && existsSync(file)) {
-    throw new Error(`${MANIFEST} already exists; use skills-manager add`);
+    throw new Error(`${shown} already exists; use skills-manager add`);
   }
   const manifest = readManifest(root);
   if (!init && manifest === undefined) {
-    throw new Error(`No ${MANIFEST} found; start with skills-manager init`);
+    throw new Error(`No ${shown} found; start with skills-manager init`);
   }
   const candidates = listCandidates(readMachine(home), manifest);
   if (args.includes(CANDIDATES_FLAG)) {

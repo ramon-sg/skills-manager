@@ -213,6 +213,18 @@ describe("install", () => {
     assert.match(lock.skills.beta.hash, /^sha256-[0-9a-f]{64}$/);
   });
 
+  test("with paths in the manifest it installs where they say and check passes", () => {
+    const { sources } = manifest();
+    write(join(repo, ".agents/skills.json"), JSON.stringify({ sources, paths: { skillsDir: "vendor/skills", lock: "vendor/lock.json" } }));
+    const result = cli(["install"]);
+    assert.equal(result.status, 0, result.output);
+    assert.equal(read("vendor/skills/beta/SKILL.md"), "Beta.\n");
+    assert.equal(existsSync(join(repo, ".agents/skills")), false);
+    assert.equal(existsSync(join(repo, LOCK)), false);
+    assert.equal(JSON.parse(read("vendor/lock.json")).skills.alpha.commit, firstSha);
+    assert.equal(cli(["check"]).status, 0);
+  });
+
   test("a second install changes nothing", () => {
     assert.equal(cli(["install"]).status, 0);
     const before = statSync(join(repo, LOCK)).mtimeMs;

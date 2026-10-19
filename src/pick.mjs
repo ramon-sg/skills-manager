@@ -6,8 +6,9 @@
  * pick to the manifest and run `install`. If `install` fails, the manifest goes
  * back to how it was.
  */
-import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { listCandidates, parseSelect, picksToSources } from "./lib.mjs";
 import { askInteractively } from "./prompt.mjs";
@@ -34,6 +35,12 @@ const USAGE_EXIT = 2;
 /** How to use it without a TTY. */
 const USAGE = `Without an interactive terminal use ${CANDIDATES_FLAG} to see what is available, or ${SELECT_FLAG} plugin@marketplace,local-skill (plugin@marketplace:skill1+skill2 for individual skills).`;
 
+/** Name of the skill bundled with the package, which `init` copies. */
+const BUNDLED_SKILL = "manage-skills";
+
+/** Folder of the package that holds the bundled skills. */
+const BUNDLED_SKILLS_DIR = fileURLToPath(new URL("../skills", import.meta.url));
+
 /**
  * Builds a usage error, which ends the CLI with 2.
  *
@@ -57,6 +64,20 @@ function skillFolders(dir) {
   return readdirSync(dir)
     .filter((name) => existsSync(path.join(dir, name, SKILL_FILE)))
     .sort();
+}
+
+/**
+ * Copies the bundled `manage-skills` skill into the skills folder so the agent
+ * knows how to use this tool; an existing copy is the repo's own and is kept.
+ *
+ * @param skillsDir - Absolute skills folder of the repo.
+ */
+function copyBundledSkill(skillsDir) {
+  const target = path.join(skillsDir, BUNDLED_SKILL);
+  if (existsSync(target)) {
+    return;
+  }
+  cpSync(path.join(BUNDLED_SKILLS_DIR, BUNDLED_SKILL), target, { recursive: true });
 }
 
 /**
@@ -140,5 +161,8 @@ export async function commandPick(root, { init, args, home, install }) {
       writeFileSync(file, previous);
     }
     throw error;
+  }
+  if (init) {
+    copyBundledSkill(resolvePaths(root, readManifest(root)).skillsDir);
   }
 }

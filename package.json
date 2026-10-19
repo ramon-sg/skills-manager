@@ -1,6 +1,6 @@
 {
   "name": "@ramon-sg/skills-manager",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Manage third-party agent skills vendored in a repository.",
   "type": "module",
   "license": "MIT",

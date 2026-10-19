@@ -596,6 +596,19 @@ describe("init and add", () => {
     assert.match(again.output, /already exists; use skills-manager add/);
   });
 
+  test("init copies the bundled manage-skills skill and never overwrites an existing one", () => {
+    installMachine();
+    rmSync(join(repo, ".agents/skills.json"));
+    const bundled = readFileSync(join(dirname(CLI), "..", "skills", "manage-skills", "SKILL.md"), "utf8");
+    assert.equal(cli(["init", "--select", "demo@fake"]).status, 0);
+    assert.equal(read(".agents/skills/manage-skills/SKILL.md"), bundled);
+    rmSync(join(repo, ".agents/skills.json"));
+    writeFileSync(join(repo, ".agents/skills/manage-skills/SKILL.md"), "Mine.\n");
+    assert.equal(cli(["init", "--select", "demo@fake"]).status, 0);
+    assert.equal(read(".agents/skills/manage-skills/SKILL.md"), "Mine.\n");
+    assert.equal(cli(["check"]).status, 0);
+  });
+
   test("add --candidates does not list what is already in the manifest nor synced/", () => {
     installMachine();
     rmSync(join(repo, ".agents/skills.json"));

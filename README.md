@@ -36,7 +36,7 @@ The examples below use `npx skills-manager <command>`.
 
 | File                       | What it is                                                              |
 | -------------------------- | ----------------------------------------------------------------------- |
-| `.agents/skills.json`      | Manifest: which skills you want and where from (plugins or local ones). |
+| `.agents/skills.json`      | Manifest: which skills you want and where from (plugins, git repos or local skills). |
 | `.agents/skills.lock.json` | Lock (`lockVersion: 1`): commit and hash of each copied skill. Written by the tool. |
 | `.agents/skills/<name>/`   | The copied skills. Commit them.                                         |
 | `.claude/settings.json`    | Gets `enabledPlugins` with the plugin set to `false` (see below).       |
@@ -48,10 +48,20 @@ Manifest example:
   "sources": [
     { "plugin": "superpowers@claude-plugins-official" },
     { "plugin": "other@marketplace", "skills": ["one", "two"] },
+    { "repo": "owner/name", "ref": "main", "path": "skills/my-skill" },
     { "local": "my-skill" }
   ]
 }
 ```
+
+Each source takes exactly one of `plugin`, `repo` or `local`:
+
+- `plugin`: `plugin@marketplace`, resolved from the marketplaces on your machine;
+  optional `skills` picks some of its skills.
+- `repo`: a git repo, either `owner/name` (GitHub shorthand) or a full URL. `path`
+  (required) is the folder inside the repo that holds the skill, relative and
+  without `..`; `ref` (optional) is a branch or tag.
+- `local`: the name of a skill in `~/.claude/skills`.
 
 ### Custom paths
 
@@ -132,7 +142,11 @@ active in `/plugin`, disable it for this project.
 
 `session-notice` prints, for a Claude Code `SessionStart` hook, the full content of
 the skills listed in the manifest's `sessionStart`, so the session starts already
-knowing them (skills not on disk are reported on stderr, and the exit code stays 0):
+knowing them. Each skill is wrapped in a fixed superpowers-style envelope
+(`<EXTREMELY_IMPORTANT>You have superpowers. ...`), the same one the superpowers
+plugin hook prints. It never fails the session: a skill that is not on disk, or a
+broken manifest, ends up as a single `skills-manager: ...` line on stderr and the
+exit code stays 0. List the skills in the manifest:
 
 ```json
 {

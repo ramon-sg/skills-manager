@@ -9,7 +9,8 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - `install`, `update [name] [--dry-run]`, `check` and `list` commands to vendor
-  third-party skills into `.agents/skills/` from Claude Code plugins and local skills.
+  third-party skills into `.agents/skills/` from Claude Code plugins, git repos
+  (`repo`, with `path` and optional `ref`) and local skills.
 - `init` and `add` with an interactive checkbox menu, or `--candidates` and
   `--select` without a terminal. `init` also copies the bundled `manage-skills` skill.
 - Manifest `.agents/skills.json` with `sources`, optional `paths` (`lock`,

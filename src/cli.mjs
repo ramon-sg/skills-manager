@@ -18,7 +18,7 @@
  * reaches git or the disk (`git.mjs`). Pure functions live in `lib.mjs`, repo
  * state in `state.mjs` and the `init` / `add` pick in `pick.mjs`.
  */
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -532,6 +532,20 @@ async function main() {
   }
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+/**
+ * Tells whether this file is the process entry point, also when it is reached
+ * through a symlink such as `node_modules/.bin/skills-manager`.
+ *
+ * @returns `true` if `argv[1]` resolves to this module's file.
+ */
+function isEntryPoint() {
+  try {
+    return realpathSync(process.argv[1] ?? "") === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint()) {
   await main();
 }

@@ -25,6 +25,20 @@ function envelope(name, content) {
 }
 
 /**
+ * Reads one SKILL.md without ever throwing.
+ *
+ * @param file - Absolute path of the SKILL.md.
+ * @returns Its content, or `undefined` if it is absent or unreadable (for example a directory).
+ */
+function readSkill(file) {
+  try {
+    return existsSync(file) ? readFileSync(file, "utf8") : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Builds the session-start notice from the manifest's `sessionStart` skills.
  * Reads each skill from the configured `skillsDir`; those not on disk are
  * reported instead of failing.
@@ -43,11 +57,11 @@ export function sessionNotice(root) {
   const parts = [];
   const missing = [];
   for (const name of manifest?.sessionStart ?? []) {
-    const file = path.join(skillsDir, name, SKILL_FILE);
-    if (existsSync(file)) {
-      parts.push(envelope(name, readFileSync(file, "utf8")));
-    } else {
+    const body = readSkill(path.join(skillsDir, name, SKILL_FILE));
+    if (body === undefined) {
       missing.push(name);
+    } else {
+      parts.push(envelope(name, body));
     }
   }
   return { text: parts.join("\n"), missing };

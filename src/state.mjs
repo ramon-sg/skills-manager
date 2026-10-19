@@ -30,14 +30,20 @@ const DEFAULT_SETTINGS = ".claude/settings.json";
  * @param root - Repo root.
  * @param manifest - Manifest read, if any; its `paths` field overrides the defaults.
  * @returns Absolute `{ manifest, lock, skillsDir, settings }`.
- * @throws {Error} If a path in `paths` is absolute or climbs out of the root.
+ * @throws {Error} If a path in `paths` is absolute, climbs out of the root or points at the root itself.
  * @example
  * resolvePaths("/repo", { sources: [], paths: { skillsDir: "skills" } }).skillsDir;
  * // "/repo/skills"
  */
 export function resolvePaths(root, manifest) {
   const configured = manifest?.paths ?? {};
-  const pick = (key, fallback) => path.join(root, assertRelPath(configured[key] ?? fallback));
+  const pick = (key, fallback) => {
+    const rel = assertRelPath(configured[key] ?? fallback).replace(/\/+$/, "");
+    if (rel === "." || rel === "") {
+      throw new Error(`The path "${key}" must not point at the repo root: ${JSON.stringify(configured[key])}`);
+    }
+    return path.join(root, rel);
+  };
   return {
     manifest: path.join(root, MANIFEST),
     lock: pick("lock", DEFAULT_LOCK),
@@ -205,12 +211,15 @@ export const LOCK_VERSION = 1;
  *
  * @param paths - Paths from `resolvePaths`.
  * @returns `{ lockVersion, skills, plugins }`.
- * @throws {Error} If any skill name is not valid or the lock is from a newer tool.
+ * @throws {Error} If any skill name is not valid, the lockVersion is not an integer >= 1, or the lock is from a newer tool.
  */
 export function readLock(paths) {
   const file = paths.lock;
   const lock = existsSync(file) ? readJson(file) : {};
-  const lockVersion = lock.lockVersion ?? LOCK_VERSION;
+  const lockVersion = lock.lockVersion === undefined ? LOCK_VERSION : lock.lockVersion;
+  if (!Number.isInteger(lockVersion) || lockVersion < 1) {
+    throw new Error(`The lock has an invalid lockVersion: ${lockVersion}.`);
+  }
   if (lockVersion > LOCK_VERSION) {
     throw new Error(`The lock was written by a newer skills-manager (lockVersion ${lockVersion}); upgrade @ramon-sg/skills-manager.`);
   }

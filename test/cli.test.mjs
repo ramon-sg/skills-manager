@@ -243,6 +243,18 @@ describe("install", () => {
     assert.equal(read(".agents/skills/beta/SKILL.md"), "Beta.\n");
   });
 
+  test("runs main when started through a symlink, like node_modules/.bin", () => {
+    assert.equal(cli(["install"]).status, 0);
+    write(join(repo, ".agents/skills/alpha/SKILL.md"), "edited\n");
+    const link = join(base, "bin", "skills-manager");
+    mkdirSync(dirname(link), { recursive: true });
+    symlinkSync(CLI, link);
+    const env = { ...process.env, SKILLS_HOME: home };
+    const result = spawnSync(process.execPath, [link, "check"], { cwd: repo, encoding: "utf8", env });
+    assert.equal(result.status, 1);
+    assert.match(`${result.stdout}${result.stderr}`, /edited by hand: alpha/);
+  });
+
   test("a hand-edited skill makes check and install fail", () => {
     assert.equal(cli(["install"]).status, 0);
     write(join(repo, ".agents/skills/alpha/SKILL.md"), "edited\n");
@@ -420,6 +432,16 @@ describe("versioned lock", () => {
     write(join(repo, LOCK), JSON.stringify(legacy, null, 2));
     const result = cli(["check"]);
     assert.equal(result.status, 0, result.output);
+  });
+
+  test("an invalid lockVersion makes check exit 1 naming the value", () => {
+    assert.equal(cli(["install"]).status, 0);
+    for (const bad of ["abc", 1.5, null, "2", 0, -1]) {
+      write(join(repo, LOCK), JSON.stringify({ ...JSON.parse(read(LOCK)), lockVersion: bad }));
+      const result = cli(["check"]);
+      assert.equal(result.status, 1, `lockVersion ${JSON.stringify(bad)}`);
+      assert.match(result.output, new RegExp(`The lock has an invalid lockVersion: ${bad}\\.`));
+    }
   });
 
   test("a lock with a newer lockVersion makes check exit 1 asking to upgrade", () => {

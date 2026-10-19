@@ -66,6 +66,14 @@ describe("sessionNotice", () => {
     assert.deepEqual(sessionNotice(root), { text: "", missing: ["ghost"] });
   });
 
+  test("an unreadable SKILL.md goes to missing and the healthy skills still print", () => {
+    put(".agents/skills.json", JSON.stringify({ sources: [], sessionStart: ["a", "broken", "b"] }));
+    put(".agents/skills/a/SKILL.md", "A");
+    put(".agents/skills/broken/SKILL.md/keep", "x");
+    put(".agents/skills/b/SKILL.md", "B");
+    assert.deepEqual(sessionNotice(root), { text: `${envelope("a", "A")}\n${envelope("b", "B")}`, missing: ["broken"] });
+  });
+
   test("without a manifest everything is empty", () => {
     assert.deepEqual(sessionNotice(root), { text: "", missing: [] });
   });

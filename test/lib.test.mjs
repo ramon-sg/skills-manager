@@ -363,4 +363,12 @@ describe("resolvePaths", () => {
     assert.throws(() => resolvePaths("/repo", { sources: [], paths: { lock: "../x" } }), /relative/);
     assert.throws(() => resolvePaths("/repo", { sources: [], paths: { settings: "/etc/x" } }), /relative/);
   });
+
+  test("it rejects paths that point at the repo root", () => {
+    for (const key of ["skillsDir", "lock", "settings"]) {
+      for (const value of [".", "", "./", "a/.."]) {
+        assert.throws(() => resolvePaths("/repo", { sources: [], paths: { [key]: value } }), /must not point at the repo root|relative/, `${key}=${JSON.stringify(value)}`);
+      }
+    }
+  });
 });

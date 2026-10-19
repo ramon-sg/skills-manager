@@ -6,7 +6,7 @@ into `.agents/skills/` so every session has them, cloud sessions included, witho
 downloading anything. A manifest says which ones you want and a lock records the
 exact commit and content hash that was copied.
 
-Requires Node 20 or newer.
+Requires Node 20.12 or newer.
 
 ## Install
 
@@ -14,7 +14,9 @@ Requires Node 20 or newer.
 npx @ramon-sg/skills-manager init
 ```
 
-Or add it to the project and expose the commands as scripts:
+Recommended: add it to the project as a devDependency and expose the commands as
+scripts (the unscoped `skills-manager` on npm is an unrelated package, so always
+use the full `@ramon-sg/` name with `npx`):
 
 ```sh
 npm install --save-dev @ramon-sg/skills-manager
@@ -30,7 +32,9 @@ npm install --save-dev @ramon-sg/skills-manager
 }
 ```
 
-The examples below use `npx skills-manager <command>`.
+The examples below use `npx @ramon-sg/skills-manager <command>`. Once it is a
+devDependency, `npx --no-install skills-manager <command>` (or the scripts above)
+runs the installed copy.
 
 ## Files
 
@@ -85,13 +89,13 @@ stops with a message asking you to upgrade the package.
 
 | Command                           | What it does                                                            | Example                                                   |
 | --------------------------------- | ----------------------------------------------------------------------- | --------------------------------------------------------- |
-| `init`                            | First time: pick from what is installed on your machine; builds the manifest and copies the bundled `manage-skills` skill. | `npx skills-manager init`                                 |
-| `add`                             | Adds more skills to the manifest and installs them.                     | `npx skills-manager add --select superpowers@claude-plugins-official` |
-| `install`                         | Makes disk and lock match the manifest.                                 | `npx skills-manager install`                              |
-| `update [name]`                   | Moves to the latest published. `--dry-run` only prints what would change. | `npx skills-manager update --dry-run`                     |
-| `check`                           | Fails if disk, lock and manifest disagree. Meant for CI.                | `npx skills-manager check`                                |
-| `list`                            | Lists the lock: origin, version and whether a newer one exists.         | `npx skills-manager list`                                 |
-| `session-notice`                  | Prints a notice for a `SessionStart` hook (see below).                  | `npx skills-manager session-notice`                       |
+| `init`                            | First time: pick from what is installed on your machine; builds the manifest and copies the bundled `manage-skills` skill. | `npx @ramon-sg/skills-manager init`                                 |
+| `add`                             | Adds more skills to the manifest and installs them.                     | `npx @ramon-sg/skills-manager add --select superpowers@claude-plugins-official` |
+| `install`                         | Makes disk and lock match the manifest.                                 | `npx @ramon-sg/skills-manager install`                              |
+| `update [name]`                   | Moves to the latest published. `--dry-run` only prints what would change. | `npx @ramon-sg/skills-manager update --dry-run`                     |
+| `check`                           | Fails if disk, lock and manifest disagree. Meant for CI.                | `npx @ramon-sg/skills-manager check`                                |
+| `list`                            | Lists the lock: origin, version and whether a newer one exists.         | `npx @ramon-sg/skills-manager list`                                 |
+| `session-notice`                  | Prints a notice for a `SessionStart` hook (see below).                  | `npx @ramon-sg/skills-manager session-notice`                       |
 
 In a terminal, `init` and `add` show a checkbox list: one line per plugin with how
 many skills it brings, space to mark and enter to continue. For every marked plugin
@@ -105,11 +109,11 @@ the name of a local skill, separated by commas.
 
 ## How to update
 
-1. `npx skills-manager update --dry-run`: see what would change.
-2. `npx skills-manager update`: apply it.
+1. `npx @ramon-sg/skills-manager update --dry-run`: see what would change.
+2. `npx @ramon-sg/skills-manager update`: apply it.
 3. Review the diff: `git diff --stat .agents/skills` and every touched `SKILL.md`.
    They are instructions agents will read, so know what comes in.
-4. `npx skills-manager check`, then commit.
+4. `npx @ramon-sg/skills-manager check`, then commit.
 
 ## No hand edits
 
@@ -118,9 +122,9 @@ longer matches the lock and `check` fails (also if a script loses its executable
 bit). To change something, use the commands. If the difference was a hand edit,
 `install` refuses to continue and names the two ways out:
 
-- **Go back to the locked version:** `rm -rf .agents/skills/<name> && npx skills-manager install`.
+- **Go back to the locked version:** `rm -rf .agents/skills/<name> && npx @ramon-sg/skills-manager install`.
   It rebuilds the skill at the pinned commit, fetching nothing new.
-- **Move to the latest published:** `npx skills-manager update <name>`. It overwrites
+- **Move to the latest published:** `npx @ramon-sg/skills-manager update <name>`. It overwrites
   the edit and moves the lock to the latest commit. `update --dry-run` warns
   `<name>: edited by hand, will be overwritten` for every skill that would lose an edit.
 
@@ -171,8 +175,12 @@ Then call it from `.claude/settings.json`:
 }
 ```
 
-`node_modules/.bin/skills-manager session-notice` works too, without going through
-`npx`. A session in the cloud only receives the skills, and they arrive through the
+`session-notice` finds the repo from the current directory (the hook runs from the
+project dir) and reports each problem on its own `skills-manager:` stderr line, one
+per missing skill, always exiting 0 so it never blocks the session start. With
+`npx --no-install`, if the package is not installed npx prints its own error; that
+does not block the session start either. `node_modules/.bin/skills-manager
+session-notice` works too, without going through `npx`. A session in the cloud only receives the skills, and they arrive through the
 repo; plugin commands, hooks and MCP servers do not.
 
 ## The bundled skill
@@ -180,6 +188,13 @@ repo; plugin commands, hooks and MCP servers do not.
 `init` copies a `manage-skills` skill to `.agents/skills/manage-skills/SKILL.md`
 (inside your `skillsDir`) that teaches the agent to run these commands. It never
 overwrites an existing copy.
+
+## Releasing
+
+For maintainers. npm trusted publishing can only be configured once the package
+exists, so the first release cannot use it: publish `1.0.0` with `npm publish` from
+a logged-in machine (or with an `NPM_TOKEN` secret), then configure trusted
+publishing for `publish.yml` on npmjs.com. Later releases go through the workflow.
 
 ## License
 

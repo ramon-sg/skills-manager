@@ -2,12 +2,13 @@
  * @file Interactive checkbox menu for `skills-manager init` and `skills-manager add`
  * (`@clack/prompts`). First plugins and local skills are ticked, one short line
  * each; then, for each ticked plugin with more than one skill, it asks whether
- * to take all or pick some. At the end it shows the summary and asks for
+ * to take all or pick some. Catalog skills are ticked in one list grouped by
+ * category, each with its description. At the end it shows the summary and asks for
  * confirmation. It only runs with a terminal; without one, `pick.mjs` asks for `--select`.
  */
-import { confirm, intro, isCancel, multiselect, note, outro, select } from "@clack/prompts";
+import { confirm, groupMultiselect, intro, isCancel, multiselect, note, outro, select } from "@clack/prompts";
 
-import { menuOptions, pickSummary } from "./lib.mjs";
+import { catalogMenu, menuOptions, pickSummary } from "./lib.mjs";
 
 /** Answer "take all the plugin's skills". */
 const ALL_SKILLS = "all";
@@ -85,13 +86,56 @@ async function askSkills(candidate) {
 }
 
 /**
+ * Shows the summary of the picks and asks to go on.
+ *
+ * @param picks - Picks `{ id, skills? }`.
+ * @param candidates - The candidates they come from.
+ * @returns The same picks, if confirmed.
+ * @throws {Error} If cancelled or not confirmed.
+ */
+async function confirmPicks(picks, candidates) {
+  note(pickSummary(picks, candidates), "You are about to add");
+  if (!orCancel(await confirm({ message: "Continue?", active: "Yes", inactive: "No" }))) {
+    throw new Error(CANCELLED);
+  }
+  outro("Installing…");
+  return picks;
+}
+
+/**
+ * Shows the catalog skills grouped by category, each with its description,
+ * and returns what was picked.
+ *
+ * @param candidates - Catalog candidates.
+ * @returns Picks `{ id }`.
+ * @throws {Error} If cancelled or not confirmed.
+ */
+async function askCatalog(candidates) {
+  intro("Skills");
+  const ids = orCancel(
+    await groupMultiselect({
+      message: `What do you want to add? ${CHECKBOX_KEYS}`,
+      options: catalogMenu(candidates),
+      maxItems: MAX_ROWS,
+      required: true,
+      selectableGroups: true,
+      showInstructions: false,
+    }),
+  );
+  return confirmPicks(ids.map((id) => ({ id })), candidates);
+}
+
+/**
  * Shows the checkbox menu and returns what was picked.
  *
- * @param candidates - What `listCandidates` returns.
+ * @param candidates - What `listCandidates` returns, or catalog candidates.
  * @returns Picks `{ id, skills? }`.
  * @throws {Error} If nothing is pickable, or it is cancelled or not confirmed.
  */
 export async function askInteractively(candidates) {
+  if (candidates.length > 0 && candidates.every((candidate) => candidate.kind === "catalog")) {
+    return askCatalog(candidates);
+  }
   const { options, hidden } = menuOptions(candidates);
   if (options.length === 0) {
     throw new Error("Nothing installed on this machine to add.");
@@ -114,10 +158,5 @@ export async function askInteractively(candidates) {
     const candidate = candidates.find((option) => option.id === id);
     picks.push(candidate?.kind === "plugin" ? await askSkills(candidate) : { id });
   }
-  note(pickSummary(picks, candidates), "You are about to add");
-  if (!orCancel(await confirm({ message: "Continue?", active: "Yes", inactive: "No" }))) {
-    throw new Error(CANCELLED);
-  }
-  outro("Installing…");
-  return picks;
+  return confirmPicks(picks, candidates);
 }

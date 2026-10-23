@@ -8,10 +8,11 @@
  */
 import { createHash } from "node:crypto";
 
+import { assertCatalogEntry, CATALOG_PREFIX } from "./catalog.mjs";
 import { assertSkillName } from "./git.mjs";
 
 /** Keys that identify the origin of a manifest source; only one per entry. */
-const SOURCE_KINDS = ["plugin", "repo", "local"];
+const SOURCE_KINDS = ["plugin", "repo", "local", "catalog"];
 
 /** Prefix of paths relative to the marketplace repo. */
 const RELATIVE_PREFIX = "./";
@@ -78,7 +79,8 @@ function assertOptionalFields(manifest) {
 
 /**
  * Validates the skills manifest: each source must carry exactly one of
- * `plugin`, `repo` or `local`; `paths` and `sessionStart`, if present, must be valid.
+ * `plugin`, `repo`, `local` or `catalog` (a catalog also needs its `skills`
+ * list, and appears only once); `paths` and `sessionStart`, if present, must be valid.
  *
  * @param text - JSON content of the manifest.
  * @returns The parsed manifest.
@@ -100,6 +102,14 @@ export function parseManifest(text) {
         `Each source takes exactly one of ${SOURCE_KINDS.join(", ")}: ${JSON.stringify(entry)}`,
       );
     }
+    if (kinds[0] === "catalog") {
+      assertCatalogEntry(entry);
+    }
+  }
+  const catalogs = manifest.sources.map((entry) => entry.catalog).filter((catalog) => catalog !== undefined);
+  const repeated = catalogs.find((catalog, index) => catalogs.indexOf(catalog) !== index);
+  if (repeated !== undefined) {
+    throw new Error(`The catalog ${repeated} appears twice in the manifest; list all its skills in one source.`);
   }
   assertOptionalFields(manifest);
   return manifest;
@@ -179,10 +189,15 @@ export function findCollisions(incoming, own) {
   const messages = [];
   for (const [name, origin] of incoming) {
     const origins = [origin].flat();
+    const fromCatalogs = origins.every((key) => key.startsWith(CATALOG_PREFIX));
     if (own.has(name)) {
-      messages.push(`"${name}" (from ${origins.join(", ")}) already exists as an own skill: exclude "${name}" in the manifest`);
+      messages.push(fromCatalogs
+        ? `"${name}" (from ${origins.join(", ")}) already exists as an own skill: remove the own folder or drop "${name}" (and what requires it) from the catalog source`
+        : `"${name}" (from ${origins.join(", ")}) already exists as an own skill: exclude "${name}" in the manifest`);
     } else if (new Set(origins).size > 1) {
-      messages.push(`"${name}" comes from ${origins.join(", ")}: exclude "${name}" in the manifest of one of the origins`);
+      messages.push(fromCatalogs
+        ? `"${name}" comes from ${origins.join(", ")}: keep "${name}" (and what requires it) in only one of those catalog sources`
+        : `"${name}" comes from ${origins.join(", ")}: exclude "${name}" in the manifest of one of the origins`);
     }
   }
   return messages;
@@ -295,13 +310,14 @@ export function listCandidates(machine, manifest) {
 
 /**
  * Reads the `--select` value: sources separated by commas and, to pick
- * individual skills of a plugin, `plugin@mkt:skill1+skill2`.
+ * individual skills of a plugin, `plugin@mkt:skill1+skill2`. A catalog skill
+ * (`catalog:<catalog>/<skill>`) is taken whole, colons and all.
  *
  * @param text - `--select` value.
  * @returns Picks `{ id, skills? }`.
  * @example
- * parseSelect("a@m:x+y,local");
- * // [{ id: "a@m", skills: ["x", "y"] }, { id: "local" }]
+ * parseSelect("a@m:x+y,local,catalog:o/r/planning");
+ * // [{ id: "a@m", skills: ["x", "y"] }, { id: "local" }, { id: "catalog:o/r/planning" }]
  */
 export function parseSelect(text) {
   return text
@@ -309,6 +325,9 @@ export function parseSelect(text) {
     .map((token) => token.trim())
     .filter(Boolean)
     .map((token) => {
+      if (token.startsWith(CATALOG_PREFIX)) {
+        return { id: token };
+      }
       const [id, skills] = token.split(SKILLS_SEPARATOR);
       return skills === undefined ? { id } : { id, skills: skills.split(SELECT_SKILL_SEPARATOR).filter(Boolean) };
     });
@@ -357,6 +376,27 @@ export function menuOptions(candidates) {
 }
 
 /**
+ * Builds the grouped menu for catalog candidates: one group per category, in
+ * alphabetical order, and one row per skill with its description in the label
+ * (so it shows on every row) and what it requires in the hint.
+ *
+ * @param candidates - Catalog candidates `{ id, name, category, description, requires }`.
+ * @returns Category to options `{ value, label, hint? }`.
+ * @example
+ * catalogMenu([{ id: "catalog:o/r/a", name: "a", category: "Plans", description: "Plans.", requires: [] }]);
+ * // { Plans: [{ value: "catalog:o/r/a", label: "a · Plans." }] }
+ */
+export function catalogMenu(candidates) {
+  const groups = {};
+  for (const candidate of [...candidates].sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name))) {
+    const label = candidate.description === "" ? candidate.name : `${candidate.name} · ${candidate.description}`;
+    const option = candidate.requires.length > 0 ? { value: candidate.id, label, hint: `+ ${candidate.requires.join(", ")}` } : { value: candidate.id, label };
+    (groups[candidate.category] ??= []).push(option);
+  }
+  return groups;
+}
+
+/**
  * Summarizes the picks, one line per candidate, to confirm before installing.
  *
  * @param picks - Picks `{ id, skills? }`.
@@ -370,6 +410,10 @@ export function pickSummary(picks, candidates) {
   return picks
     .map((pick) => {
       const candidate = candidates.find((option) => option.id === pick.id);
+      if (candidate?.kind === "catalog") {
+        const requires = candidate.requires.length > 0 ? ` (+ ${candidate.requires.join(", ")})` : "";
+        return `${candidate.name}${requires} · ${candidate.catalog}`;
+      }
       const name = shortName(pick.id);
       if (candidate?.kind === "local") {
         return `${name} (yours)`;
@@ -386,8 +430,9 @@ export function pickSummary(picks, candidates) {
  * Translates the picks into manifest sources, validating against the candidates.
  *
  * @param picks - Picks `{ id, skills? }`; if one repeats, the last one wins.
- * @param candidates - What `listCandidates` returns.
- * @returns Sources `{ plugin, skills? }` or `{ local }`.
+ * @param candidates - What `listCandidates` returns, or catalog candidates.
+ * @returns Sources `{ plugin, skills? }`, `{ local }` or `{ catalog, ref?, skills }`
+ * (one per catalog, with every skill picked from it).
  * @throws {Error} If nothing was picked, or something is missing, has a note or asks for a skill it does not provide.
  * @example
  * picksToSources([{ id: "x" }], [{ id: "x", kind: "local", skills: ["x"] }]);
@@ -411,11 +456,46 @@ export function picksToSources(picks, candidates) {
     if (unknown.length > 0) {
       throw new Error(`"${pick.id}" does not provide ${unknown.join(", ")}; it provides ${candidate.skills.join(", ")}.`);
     }
-    if (candidate.kind === "local") {
+    if (candidate.kind === "catalog") {
+      const existing = sources.find((source) => source.catalog === candidate.catalog);
+      if (existing === undefined) {
+        sources.push(candidate.ref === undefined ? { catalog: candidate.catalog, skills: [candidate.name] } : { catalog: candidate.catalog, ref: candidate.ref, skills: [candidate.name] });
+      } else {
+        existing.skills.push(candidate.name);
+      }
+    } else if (candidate.kind === "local") {
       sources.push({ local: candidate.id });
     } else {
       sources.push(pick.skills?.length > 0 ? { plugin: candidate.id, skills: pick.skills } : { plugin: candidate.id });
     }
   }
   return sources;
+}
+
+/**
+ * Adds new sources to the manifest ones. A catalog already in the manifest
+ * gets the new skills in its own `skills` list (and the new `ref`, if one was
+ * given) instead of a second entry for the same catalog.
+ *
+ * @param existing - Current manifest sources.
+ * @param added - Sources from `picksToSources`.
+ * @returns The merged sources; the inputs are not modified.
+ * @example
+ * mergeSources([{ catalog: "o/r", skills: ["a"] }], [{ catalog: "o/r", skills: ["b"] }]);
+ * // [{ catalog: "o/r", skills: ["a", "b"] }]
+ */
+export function mergeSources(existing, added) {
+  const merged = existing.map((entry) => (entry.catalog === undefined ? entry : { ...entry, skills: [...entry.skills] }));
+  for (const source of added) {
+    const target = source.catalog === undefined ? undefined : merged.find((entry) => entry.catalog === source.catalog);
+    if (target === undefined) {
+      merged.push(source);
+      continue;
+    }
+    target.skills.push(...source.skills.filter((name) => !target.skills.includes(name)));
+    if (source.ref !== undefined) {
+      target.ref = source.ref;
+    }
+  }
+  return merged;
 }

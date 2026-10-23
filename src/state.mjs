@@ -8,6 +8,7 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
+import { CATALOG_PREFIX } from "./catalog.mjs";
 import { assertRelPath, assertSkillName, walk } from "./git.mjs";
 import { hashFiles, parseManifest } from "./lib.mjs";
 
@@ -125,11 +126,14 @@ export function loadMarketplaces(home) {
  * Key under which a manifest source appears in the lock.
  *
  * @param entry - Manifest source.
- * @returns `plugin@marketplace`, `local` or `repo/path`.
+ * @returns `plugin@marketplace`, `local`, `repo/path` or `catalog:<catalog>`.
  */
 export function sourceKey(entry) {
   if (entry.local !== undefined) {
     return LOCAL_SOURCE;
+  }
+  if (entry.catalog !== undefined) {
+    return `${CATALOG_PREFIX}${entry.catalog}`;
   }
   return entry.plugin ?? `${entry.repo}/${entry.path}`;
 }

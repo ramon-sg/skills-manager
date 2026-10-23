@@ -43,6 +43,19 @@ whether a newer one exists.
 When a plugin is copied, the command sets `enabledPlugins: {"<plugin>": false}`
 in `.claude/settings.json` so it is not loaded twice; do not touch it.
 
+## From a catalog
+
+A catalog is a repo of shared skills (`skills-catalog.json` at its root).
+
+1. `npx @ramon-sg/skills-manager add --catalog <owner/repo> --candidates` (or
+   `init` without a manifest) prints its skills as JSON, with `category`,
+   `description` and `requires`.
+2. Show them in the chat grouped by category and ask which ones.
+3. `npx @ramon-sg/skills-manager add --catalog <owner/repo> --select catalog:<owner/repo>/<skill>,...`.
+   What a skill `requires` comes along on its own.
+
+`update <name>` moves only that skill of the catalog.
+
 ## Before applying and after
 
 1. Show the change: `git diff --stat .agents/skills` and the diff of every

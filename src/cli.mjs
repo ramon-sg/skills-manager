@@ -7,13 +7,16 @@
  *   skills-manager check                fail if disk, lock and manifest do not match
  *   skills-manager list                 what is in the lock, with origin, version and whether a newer one exists
  *   skills-manager session-notice       print the session-start skills for a SessionStart hook; never fails
- *   skills-manager init | add           pick from what is installed on the machine and install it
+ *   skills-manager init | add           pick from what is installed on the machine, or from the
+ *                                       catalogs given with --catalog, and install it
  *                                       (--candidates lists as JSON; --select picks without asking)
  *
  * The manifest (`.agents/skills.json`) says what is wanted; the lock
  * (`.agents/skills.lock.json`) pins the commit and hash of each skill. Plugins
- * are resolved with the marketplaces in `~/.claude/plugins` and locals are
- * copied from `~/.claude/skills` (`SKILLS_HOME` overrides the home, for tests).
+ * are resolved with the marketplaces in `~/.claude/plugins`, locals are
+ * copied from `~/.claude/skills` (`SKILLS_HOME` overrides the home, for tests)
+ * and catalogs are fetched from their repo, each skill at its own commit
+ * (`catalog-plan.mjs`).
  * Everything that comes from data (repos, shas, paths) is validated before it
  * reaches git or the disk (`git.mjs`). Pure functions live in `lib.mjs`, repo
  * state in `state.mjs` and the `init` / `add` pick in `pick.mjs`.
@@ -23,6 +26,8 @@ import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { catalogRepo, latestRelease, withRequires } from "./catalog.mjs";
+import { resolveCatalogPlan } from "./catalog-plan.mjs";
 import { assertRelPath, assertRepo, assertSkillName, fetchSource, git, insideTree, latestCommit, walk } from "./git.mjs";
 import { diffLock, findCollisions, hashFiles, resolvePluginSource, rewritePluginRefs } from "./lib.mjs";
 import { sessionNotice } from "./notice.mjs";
@@ -223,7 +228,8 @@ function planLocal(entry, { paths, lock, home, update }) {
  *
  * @param entry - Manifest source.
  * @param context - `{ paths, lock, home, marketplaces, update }`.
- * @returns Plan with `key`, `entry`, pinned `names` and, if it must be fetched, `repo`, `commit`, `root` and `plugin`.
+ * @returns Plan with `key`, `entry`, pinned `names` and, if it must be fetched, `repo`, `commit`, `root` and `plugin`;
+ * a catalog plan only carries `catalog: true` and is resolved skill by skill when fetching.
  * @throws {Error} If a pinned skill was edited by hand and overwriting was not requested.
  */
 function planSource(entry, context) {
@@ -233,6 +239,10 @@ function planSource(entry, context) {
   const { paths, lock, marketplaces, update } = context;
   const key = sourceKey(entry);
   const names = lockedNames(lock, entry);
+  if (entry.catalog !== undefined) {
+    assertUntouched(paths, lock, names.filter((name) => update !== true && update !== name));
+    return { key, entry, names, catalog: true };
+  }
   if (names.length === 0 || update === true || names.includes(update)) {
     const resolved = describeSource(entry, marketplaces);
     return { key, entry, names, repo: resolved.repo, commit: latestCommit(resolved), root: resolved.path, plugin: resolved.plugin };
@@ -262,17 +272,16 @@ function planSource(entry, context) {
 function describeChanges(paths, plans, stale, lock) {
   const lines = stale.map((name) => `${name}: will be removed`);
   for (const plan of plans.filter((candidate) => candidate.skills !== undefined)) {
-    const fresh = new Set(plan.skills.map((skill) => skill.name));
-    lines.push(...plan.names.filter((name) => !fresh.has(name)).map((name) => `${name}: will be removed`));
-    const label = plan.commit?.slice(0, SHORT_SHA) ?? LOCAL_SOURCE;
-    for (const { name } of plan.skills) {
+    lines.push(...leavingNames(plan, plans).map((name) => `${name}: will be removed`));
+    for (const { name, commit = plan.commit, tag } of plan.skills) {
+      const label = commit === undefined ? LOCAL_SOURCE : `${tag === undefined ? "" : `${tag} `}${commit.slice(0, SHORT_SHA)}`.trim();
       const known = Object.hasOwn(lock.skills, name);
       const old = known ? lock.skills[name].commit : undefined;
       if (!known) {
         lines.push(`${name}: new (${label})`);
         continue;
       }
-      if (old !== plan.commit) {
+      if (old !== commit) {
         lines.push(`${name}: ${old?.slice(0, SHORT_SHA) ?? LOCAL_SOURCE} → ${label}`);
       }
       if (isEdited(paths, lock, name)) {
@@ -284,14 +293,18 @@ function describeChanges(paths, plans, stale, lock) {
 }
 
 /**
- * Fetches each source that needs it and builds its skills.
+ * Fetches each source that needs it and builds its skills; catalog sources are
+ * resolved skill by skill.
  *
- * @param plans - Plan of each source; `skills` is added to them.
+ * @param plans - Plan of each source; `skills` (and, for catalogs, `keep`) is added to them.
  * @param temp - Temporary folder where origins are fetched.
+ * @param context - `{ paths, lock, update }`, for catalog sources.
  */
-function fetchPlans(plans, temp) {
+function fetchPlans(plans, temp, context) {
   for (const [index, plan] of plans.entries()) {
-    if (plan.commit !== undefined) {
+    if (plan.catalog === true) {
+      resolveCatalogPlan(plan, { ...context, temp, index });
+    } else if (plan.commit !== undefined) {
       const tree = path.join(temp, String(index));
       fetchSource({ repo: plan.repo, commit: plan.commit }, tree);
       plan.skills = collectSkills(tree, plan);
@@ -310,7 +323,8 @@ function fetchPlans(plans, temp) {
 function assertNoCollisions(paths, plans, lock) {
   const incoming = new Map();
   for (const plan of plans) {
-    for (const name of plan.skills?.map((skill) => skill.name) ?? plan.names) {
+    const names = plan.skills === undefined ? plan.names : [...plan.skills.map((skill) => skill.name), ...(plan.keep ?? [])];
+    for (const name of names) {
       incoming.set(name, [...(incoming.get(name) ?? []), plan.key]);
     }
   }
@@ -350,13 +364,46 @@ export function installAll(root, { home, update, dryRun = false, log = console.l
   const plans = manifest.sources.map((entry) => planSource(entry, context));
   const temp = mkdtempSync(path.join(tmpdir(), "skills-"));
   try {
-    fetchPlans(plans, temp);
+    fetchPlans(plans, temp, context);
     assertNoCollisions(paths, plans, lock);
     describeChanges(paths, plans, stale, lock).forEach((line) => log(line));
     return dryRun ? { changed: false } : writeAll(paths, { plans, stale, lock, manifest });
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
+}
+
+/**
+ * Builds the lock entry of a written skill. Catalog skills carry their own
+ * repo, commit, tag and requires; other sources share the plan's.
+ *
+ * @param plan - Plan of the skill's source.
+ * @param skill - Built skill with its files.
+ * @returns The lock entry.
+ */
+function lockEntry(plan, skill) {
+  const hash = hashFiles(skill.files);
+  if (plan.entry.local !== undefined) {
+    return { source: plan.key, hash };
+  }
+  if (plan.catalog === true) {
+    const { commit, path: skillPath, tag, version, requires } = skill;
+    return { source: plan.key, repo: catalogRepo(plan.entry.catalog), commit, ...(tag === undefined ? {} : { tag }), path: skillPath, version, hash, requires };
+  }
+  return { source: plan.key, repo: plan.repo, commit: plan.commit, path: skill.path, version: skill.version, hash };
+}
+
+/**
+ * Names a source had in the lock that it no longer writes nor keeps. A name
+ * another source now brings is not leaving: it moved there.
+ *
+ * @param plan - Plan with its skills already built.
+ * @param plans - Every plan, to see what the others bring.
+ * @returns The names to remove.
+ */
+function leavingNames(plan, plans) {
+  const incoming = new Set(plans.flatMap((other) => [...(other.skills ?? []).map((skill) => skill.name), ...(other.keep ?? [])]));
+  return plan.names.filter((name) => !incoming.has(name));
 }
 
 /**
@@ -373,9 +420,10 @@ function writeAll(paths, { plans, stale, lock, manifest }) {
     rmSync(path.join(paths.skillsDir, name), { recursive: true, force: true });
     delete skills[name];
   };
+  const fetched = plans.filter((candidate) => candidate.skills !== undefined);
   stale.forEach(remove);
-  for (const plan of plans.filter((candidate) => candidate.skills !== undefined)) {
-    plan.names.filter((name) => !plan.skills.some((skill) => skill.name === name)).forEach(remove);
+  fetched.forEach((plan) => leavingNames(plan, plans).forEach(remove));
+  for (const plan of fetched) {
     for (const skill of plan.skills) {
       const dir = path.join(paths.skillsDir, skill.name);
       rmSync(dir, { recursive: true, force: true });
@@ -386,11 +434,7 @@ function writeAll(paths, { plans, stale, lock, manifest }) {
           chmodSync(path.join(dir, file.path), EXECUTABLE_MODE);
         }
       }
-      const { name, version } = skill;
-      const hash = hashFiles(skill.files);
-      skills[name] = plan.entry.local === undefined
-        ? { source: plan.key, repo: plan.repo, commit: plan.commit, path: skill.path, version, hash }
-        : { source: plan.key, hash };
+      skills[skill.name] = lockEntry(plan, skill);
     }
   }
   const sorted = Object.fromEntries(Object.keys(skills).sort().map((name) => [name, skills[name]]));
@@ -424,6 +468,7 @@ function driftProblems(paths, manifest, lock) {
   // NOTE: a copied local is the repo's own; editing it is not drift.
   const modified = diff.modified.filter((name) => lock.skills[name].source !== LOCAL_SOURCE);
   const remote = manifest.sources.filter((entry) => entry.local === undefined);
+  const expected = (entry) => (entry.catalog === undefined ? entry.skills : withRequires(entry.skills, (name) => lock.skills[name]?.requires ?? []));
   const plugins = manifestPlugins(manifest);
   const pluginsDiff = `lock [${lock.plugins.join(", ")}], manifest [${plugins.join(", ")}]`;
   return [
@@ -431,7 +476,7 @@ function driftProblems(paths, manifest, lock) {
     ["edited by hand", modified],
     ["sources not installed", manifest.sources.filter((entry) => lockedNames(lock, entry).length === 0).map(sourceLabel)],
     ["in the lock without a source in the manifest", staleNames(lock, manifest)],
-    ["with a different skills list than the lock", remote.filter((e) => e.skills !== undefined && !sameSet(e.skills, lockedNames(lock, e))).map(sourceKey)],
+    ["with a different skills list than the lock", remote.filter((e) => e.skills !== undefined && !sameSet(expected(e), lockedNames(lock, e))).map(sourceKey)],
     ["lock plugins differ from the manifest", JSON.stringify(plugins) === JSON.stringify(lock.plugins) ? [] : [pluginsDiff]],
   ].filter(([, names]) => names.length > 0);
 }
@@ -471,7 +516,10 @@ function commandList(root, home) {
   const latest = new Map();
   for (const entry of (readManifest(root)?.sources ?? []).filter((candidate) => candidate.local === undefined)) {
     try {
-      latest.set(sourceKey(entry), latestCommit(describeSource(entry, marketplaces)));
+      const commit = entry.catalog === undefined
+        ? latestCommit(describeSource(entry, marketplaces))
+        : latestRelease(catalogRepo(entry.catalog), entry.ref).commit;
+      latest.set(sourceKey(entry), commit);
     } catch {
       // NOTE: without the marketplace or the network it is unknown whether a newer version exists; it is listed anyway.
     }

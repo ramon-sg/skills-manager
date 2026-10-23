@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## 1.1.0
+
+### Added
+
+- `catalog` sources: a repo with a `skills-catalog.json` that lists its skills
+  with path, category and `requires`. Each skill is pinned on its own (tag,
+  commit and requires in the lock), so `update <name>` moves only that skill.
+- Releases are `vX.Y.Z` tags: without `ref`, the highest one is installed; with
+  an annotated tag, the lock keeps the commit.
+- `requires` installs the skills a catalog skill needs; `check` counts them.
+- `init` and `add` take `--catalog <repo>[#ref]` (repeatable): a menu grouped
+  by category with each skill's description, `--candidates` as JSON and
+  `--select catalog:<catalog>/<skill>`.
+
 ## 1.0.0
 
 ### Added

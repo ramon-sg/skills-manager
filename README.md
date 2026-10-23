@@ -53,12 +53,13 @@ Manifest example:
     { "plugin": "superpowers@claude-plugins-official" },
     { "plugin": "other@marketplace", "skills": ["one", "two"] },
     { "repo": "owner/name", "ref": "main", "path": "skills/my-skill" },
-    { "local": "my-skill" }
+    { "local": "my-skill" },
+    { "catalog": "owner/skills-repo", "skills": ["planning", "code-audit"] }
   ]
 }
 ```
 
-Each source takes exactly one of `plugin`, `repo` or `local`:
+Each source takes exactly one of `plugin`, `repo`, `local` or `catalog`:
 
 - `plugin`: `plugin@marketplace`, resolved from the marketplaces on your machine;
   optional `skills` picks some of its skills.
@@ -66,6 +67,9 @@ Each source takes exactly one of `plugin`, `repo` or `local`:
   (required) is the folder inside the repo that holds the skill, relative and
   without `..`; `ref` (optional) is a branch or tag.
 - `local`: the name of a skill in `~/.claude/skills`.
+- `catalog`: a repo with a `skills-catalog.json` (see [Catalogs](#catalogs)),
+  `owner/name` or a full URL; `skills` (required) lists the skills you want and
+  `ref` (optional) pins a tag or follows a branch.
 
 ### Custom paths
 
@@ -134,6 +138,47 @@ Skills copied from `~/.claude/skills` are the exception: once copied they belong
 the repo. You can edit them: `check` does not flag them and `install` does not
 overwrite them; it only copies them when they are missing. `update <name>` copies
 them again from the machine, overwriting your edit.
+
+## Catalogs
+
+A catalog is a repo of skills meant to be shared between projects. It lists them
+in `skills-catalog.json` at its root:
+
+```json
+{
+  "catalogVersion": 1,
+  "skills": [
+    { "name": "planning", "path": "skills/planning", "category": "Plans", "requires": ["narrative-summary"] },
+    { "name": "narrative-summary", "path": "skills/narrative-summary", "category": "Writing" }
+  ]
+}
+```
+
+- `name` and `path` are required; `category` groups the menu (`Other` if missing).
+- `requires` lists skills of the same catalog that are installed along with it.
+- The menu description is the first sentence of the `description` in each
+  `SKILL.md` frontmatter.
+- A release is a `vX.Y.Z` tag. Without `ref`, `install` takes the highest one (or
+  HEAD if the repo has no release tags).
+
+Pick from one or more catalogs with `--catalog` (repeatable). The menu groups the
+skills by category, with their description, and shows what each one requires:
+
+```sh
+npx @ramon-sg/skills-manager add --catalog ramon-sg/agent-skills
+npx @ramon-sg/skills-manager init --catalog owner/one --catalog owner/two#v2.0.0
+```
+
+`#<tag>` pins the source to that tag; `#<branch>` follows the branch. Without a
+terminal, `--candidates` prints the catalog skills as JSON and `--select` takes
+`catalog:<catalog>/<skill>` ids (for example
+`catalog:ramon-sg/agent-skills/planning`). Picking a catalog already in the
+manifest extends its `skills` list: a catalog appears only once in the manifest.
+
+Each catalog skill is pinned on its own: the lock keeps its tag, commit and
+`requires`. `update <name>` moves only that skill (and anything new it now
+requires) to the latest release; the other skills of the catalog stay where they
+are. `update` without a name moves them all.
 
 ## Disabled plugins in the project
 

@@ -446,10 +446,10 @@ describe("versioned lock", () => {
 
   test("a lock with a newer lockVersion makes check exit 1 asking to upgrade", () => {
     assert.equal(cli(["install"]).status, 0);
-    write(join(repo, LOCK), JSON.stringify({ ...JSON.parse(read(LOCK)), lockVersion: 2 }));
+    write(join(repo, LOCK), JSON.stringify({ ...JSON.parse(read(LOCK)), lockVersion: 3 }));
     const result = cli(["check"]);
     assert.equal(result.status, 1);
-    assert.match(result.output, /The lock was written by a newer skills-manager \(lockVersion 2\); upgrade @ramon-sg\/skills-manager\./);
+    assert.match(result.output, /The lock was written by a newer skills-manager \(lockVersion 3\); upgrade @ramon-sg\/skills-manager\./);
   });
 });
 

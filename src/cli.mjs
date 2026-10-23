@@ -21,12 +21,12 @@
  * reaches git or the disk (`git.mjs`). Pure functions live in `lib.mjs`, repo
  * state in `state.mjs` and the `init` / `add` pick in `pick.mjs`.
  */
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { catalogRepo, latestRelease, withRequires } from "./catalog.mjs";
+import { catalogRepo, latestRelease, TEMPLATE_SUFFIX, withRequires } from "./catalog.mjs";
 import { resolveCatalogPlan } from "./catalog-plan.mjs";
 import { assertRelPath, assertRepo, assertSkillName, fetchSource, git, insideTree, latestCommit, walk } from "./git.mjs";
 import { diffLock, findCollisions, hashFiles, resolvePluginSource, rewritePluginRefs } from "./lib.mjs";
@@ -41,7 +41,7 @@ import {
   lockedNames,
   manifestPlugins,
   readJson,
-  LOCK_VERSION,
+  lockVersionFor,
   readLock,
   readManifest,
   sameSet,
@@ -64,6 +64,9 @@ const SHORT_SHA = 7;
 
 /** Mode used to write a file that is executable in the origin. */
 const EXECUTABLE_MODE = 0o755;
+
+/** Execute bits (user, group and others) of a file mode. */
+const EXECUTABLE_BITS = 0o111;
 
 /** GitHub `owner/repo` shorthand in `repo` sources. */
 const GITHUB_SHORTHAND = /^[\w.-]+\/[\w.-]+$/;
@@ -112,7 +115,7 @@ function relativeTo(paths, file) {
  * @returns `true` if it is on disk with different content.
  */
 function isEdited(paths, lock, name) {
-  return ![undefined, lock.skills[name].hash].includes(installedHash(paths, name));
+  return ![undefined, lock.skills[name].hash].includes(installedHash(paths, name, lock.skills[name].editable));
 }
 
 /**
@@ -260,6 +263,27 @@ function planSource(entry, context) {
 }
 
 /**
+ * Warns about editable files the repo has that the new version no longer
+ * declares editable: rebuilding the skill removes them, or replaces them with
+ * the skill's copy if it now ships the file.
+ *
+ * @param paths - Paths from `resolvePaths`.
+ * @param lock - Previous lock.
+ * @param skill - Built skill of the new version.
+ * @returns One line per file that will be removed or replaced.
+ */
+function droppedEditable(paths, lock, skill) {
+  const before = lock.skills[skill.name]?.editable ?? [];
+  const now = skill.editable ?? [];
+  return before
+    .filter((rel) => !now.includes(rel) && isRegularFile(path.join(paths.skillsDir, skill.name, assertRelPath(rel))))
+    .map((rel) => {
+      const fate = skill.files.some((file) => file.path === rel) ? "replaced by the skill's" : "removed";
+      return `${skill.name}: ${rel} is no longer editable; the repo's copy will be ${fate}`;
+    });
+}
+
+/**
  * Describes what changes: new skills, removed ones, ones that change commit and
  * the hand-edited ones that will be overwritten.
  *
@@ -273,7 +297,8 @@ function describeChanges(paths, plans, stale, lock) {
   const lines = stale.map((name) => `${name}: will be removed`);
   for (const plan of plans.filter((candidate) => candidate.skills !== undefined)) {
     lines.push(...leavingNames(plan, plans).map((name) => `${name}: will be removed`));
-    for (const { name, commit = plan.commit, tag } of plan.skills) {
+    for (const skill of plan.skills) {
+      const { name, commit = plan.commit, tag } = skill;
       const label = commit === undefined ? LOCAL_SOURCE : `${tag === undefined ? "" : `${tag} `}${commit.slice(0, SHORT_SHA)}`.trim();
       const known = Object.hasOwn(lock.skills, name);
       const old = known ? lock.skills[name].commit : undefined;
@@ -287,6 +312,7 @@ function describeChanges(paths, plans, stale, lock) {
       if (isEdited(paths, lock, name)) {
         lines.push(`${name}: edited by hand, will be overwritten`);
       }
+      lines.push(...droppedEditable(paths, lock, skill));
     }
   }
   return lines;
@@ -387,10 +413,31 @@ function lockEntry(plan, skill) {
     return { source: plan.key, hash };
   }
   if (plan.catalog === true) {
-    const { commit, path: skillPath, tag, version, requires } = skill;
-    return { source: plan.key, repo: catalogRepo(plan.entry.catalog), commit, ...(tag === undefined ? {} : { tag }), path: skillPath, version, hash, requires };
+    const { commit, path: skillPath, tag, version, requires, editable } = skill;
+    const extra = { ...(tag === undefined ? {} : { tag }), ...(editable.length === 0 ? {} : { editable }) };
+    return { source: plan.key, repo: catalogRepo(plan.entry.catalog), commit, ...extra, path: skillPath, version, hash, requires };
   }
   return { source: plan.key, repo: plan.repo, commit: plan.commit, path: skill.path, version: skill.version, hash };
+}
+
+/**
+ * Editable files to write into a skill folder that is about to be rebuilt: the
+ * repo's copy if there is one, otherwise the template the skill brings
+ * (`<file>.template`), otherwise the copy of the file the skill ships.
+ *
+ * @param dir - Installed skill folder, before it is rebuilt.
+ * @param skill - Built skill with its `files`, `defaults` and `editable` paths.
+ * @returns Files `{ path, content }`; a path with none of those is left out.
+ */
+function readEditable(dir, skill) {
+  return (skill.editable ?? []).flatMap((rel) => {
+    const own = path.join(dir, assertRelPath(rel));
+    if (isRegularFile(own)) {
+      return [{ path: rel, content: readFileSync(own), executable: (statSync(own).mode & EXECUTABLE_BITS) !== 0 }];
+    }
+    const start = skill.files.find((file) => file.path === `${rel}${TEMPLATE_SUFFIX}`) ?? skill.defaults?.find((file) => file.path === rel);
+    return start === undefined ? [] : [{ path: rel, content: start.content, executable: start.executable }];
+  });
 }
 
 /**
@@ -426,8 +473,9 @@ function writeAll(paths, { plans, stale, lock, manifest }) {
   for (const plan of fetched) {
     for (const skill of plan.skills) {
       const dir = path.join(paths.skillsDir, skill.name);
+      const editable = readEditable(dir, skill);
       rmSync(dir, { recursive: true, force: true });
-      for (const file of skill.files) {
+      for (const file of [...skill.files, ...editable]) {
         mkdirSync(path.dirname(path.join(dir, file.path)), { recursive: true });
         writeFileSync(path.join(dir, file.path), file.content);
         if (file.executable === true) {
@@ -438,7 +486,7 @@ function writeAll(paths, { plans, stale, lock, manifest }) {
     }
   }
   const sorted = Object.fromEntries(Object.keys(skills).sort().map((name) => [name, skills[name]]));
-  const text = `${JSON.stringify({ lockVersion: LOCK_VERSION, skills: sorted, plugins: manifestPlugins(manifest) }, null, 2)}\n`;
+  const text = `${JSON.stringify({ lockVersion: lockVersionFor(sorted), skills: sorted, plugins: manifestPlugins(manifest) }, null, 2)}\n`;
   syncProjectSettings(paths, lock.plugins, manifestPlugins(manifest));
   const file = paths.lock;
   if (existsSync(file) && readFileSync(file, "utf8") === text) {
@@ -459,7 +507,7 @@ function writeAll(paths, { plans, stale, lock, manifest }) {
 function driftProblems(paths, manifest, lock) {
   const actual = new Map();
   for (const name of Object.keys(lock.skills)) {
-    const hash = installedHash(paths, name);
+    const hash = installedHash(paths, name, lock.skills[name].editable);
     if (hash !== undefined) {
       actual.set(name, hash);
     }

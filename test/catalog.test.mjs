@@ -5,7 +5,7 @@
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
@@ -466,5 +466,170 @@ describe("add --catalog", () => {
     assert.equal(manifest.sources[0].ref, "v1.0.0");
     assert.equal(lock().skills.planning.commit, first);
     assert.match(installed("planning"), /planning v1/);
+  });
+});
+
+describe("editable files", () => {
+  /**
+   * Publishes `code-audit` with an editable `project.md` and its template.
+   *
+   * @param template - Content of `project.md.template`.
+   * @param tag - Release tag.
+   * @returns The sha of the tagged commit.
+   */
+  function publishEditable(template, tag) {
+    write(join(origin, "skills/code-audit/project.md.template"), template);
+    writeCatalog(origin, [{ name: "code-audit", editable: ["project.md"] }]);
+    return release(origin, tag);
+  }
+
+  /**
+   * Path of a file inside the installed `code-audit`.
+   *
+   * @param file - Path inside the skill.
+   * @returns The absolute path.
+   */
+  function auditFile(file) {
+    return join(repo, ".agents/skills/code-audit", file);
+  }
+
+  test("a missing editable file is created from its template", () => {
+    publishEditable("Conventions: none yet.\n", "v1.0.0");
+    setSources([{ catalog: `file://${origin}`, skills: ["code-audit"] }]);
+
+    const result = cli(["install"]);
+
+    assert.equal(result.status, 0, result.output);
+    assert.equal(readFileSync(auditFile("project.md"), "utf8"), "Conventions: none yet.\n");
+    assert.deepEqual(lock().skills["code-audit"].editable, ["project.md"]);
+  });
+
+  test("a skill that ships the editable file itself uses it as the starting content, out of the hash", () => {
+    write(join(origin, "skills/code-audit/project.md"), "Shipped default.\n");
+    writeCatalog(origin, [{ name: "code-audit", editable: ["project.md"] }]);
+    release(origin, "v1.0.0");
+    setSources([{ catalog: `file://${origin}`, skills: ["code-audit"] }]);
+    assert.equal(cli(["install"]).status, 0);
+    const shipped = readFileSync(auditFile("project.md"), "utf8");
+    writeFileSync(auditFile("project.md"), "Ours.\n");
+
+    const check = cli(["check"]);
+
+    assert.equal(shipped, "Shipped default.\n");
+    assert.equal(check.status, 0, check.output);
+  });
+
+  test("install recreates a deleted editable file from its template without moving the skill", () => {
+    const first = publishEditable("Conventions: none yet.\n", "v1.0.0");
+    setSources([{ catalog: `file://${origin}`, skills: ["code-audit"] }]);
+    assert.equal(cli(["install"]).status, 0);
+    publishEditable("Conventions: newer.\n", "v1.1.0");
+    rmSync(auditFile("project.md"));
+
+    const result = cli(["install"]);
+
+    assert.equal(result.status, 0, result.output);
+    assert.equal(readFileSync(auditFile("project.md"), "utf8"), "Conventions: none yet.\n");
+    assert.equal(lock().skills["code-audit"].commit, first);
+  });
+
+  test("an editable created from an executable template keeps the executable bit", () => {
+    write(join(origin, "skills/code-audit/setup.sh.template"), "#!/bin/sh\n");
+    chmodSync(join(origin, "skills/code-audit/setup.sh.template"), 0o755);
+    writeCatalog(origin, [{ name: "code-audit", editable: ["setup.sh"] }]);
+    release(origin, "v1.0.0");
+    setSources([{ catalog: `file://${origin}`, skills: ["code-audit"] }]);
+
+    const result = cli(["install"]);
+
+    assert.equal(result.status, 0, result.output);
+    assert.notEqual(statSync(auditFile("setup.sh")).mode & 0o111, 0);
+  });
+
+  test("a new version that ships the file as a normal one warns that the repo's copy will be replaced", () => {
+    publishEditable("Conventions: none yet.\n", "v1.0.0");
+    setSources([{ catalog: `file://${origin}`, skills: ["code-audit"] }]);
+    assert.equal(cli(["install"]).status, 0);
+    write(join(origin, "skills/code-audit/project.md"), "Shipped.\n");
+    writeCatalog(origin, [{ name: "code-audit" }]);
+    release(origin, "v1.1.0");
+
+    const result = cli(["update", "--dry-run"]);
+
+    assert.equal(result.status, 0, result.output);
+    assert.match(result.output, /code-audit: project\.md is no longer editable; the repo's copy will be replaced by the skill's/);
+  });
+
+  test("editing it does not make check or install fail", () => {
+    publishEditable("Conventions: none yet.\n", "v1.0.0");
+    setSources([{ catalog: `file://${origin}`, skills: ["code-audit"] }]);
+    assert.equal(cli(["install"]).status, 0);
+    writeFileSync(auditFile("project.md"), "Conventions: ours.\n");
+
+    const check = cli(["check"]);
+    const install = cli(["install"]);
+
+    assert.equal(check.status, 0, check.output);
+    assert.equal(install.status, 0, install.output);
+    assert.equal(readFileSync(auditFile("project.md"), "utf8"), "Conventions: ours.\n");
+  });
+
+  test("update rebuilds the skill but keeps the edited file, and brings the new template", () => {
+    publishEditable("Conventions: none yet.\n", "v1.0.0");
+    setSources([{ catalog: `file://${origin}`, skills: ["code-audit"] }]);
+    assert.equal(cli(["install"]).status, 0);
+    writeFileSync(auditFile("project.md"), "Conventions: ours.\n");
+    writeSkill(origin, "code-audit", "audit v2");
+    const second = publishEditable("Conventions: new template.\n", "v1.1.0");
+
+    const result = cli(["update", "code-audit"]);
+
+    assert.equal(result.status, 0, result.output);
+    assert.equal(lock().skills["code-audit"].commit, second);
+    assert.match(installed("code-audit"), /audit v2/);
+    assert.equal(readFileSync(auditFile("project.md"), "utf8"), "Conventions: ours.\n");
+    assert.equal(readFileSync(auditFile("project.md.template"), "utf8"), "Conventions: new template.\n");
+    assert.equal(cli(["check"]).status, 0);
+  });
+
+  test("editing any other file of the skill still makes check fail", () => {
+    publishEditable("Conventions: none yet.\n", "v1.0.0");
+    setSources([{ catalog: `file://${origin}`, skills: ["code-audit"] }]);
+    assert.equal(cli(["install"]).status, 0);
+    writeFileSync(auditFile("project.md.template"), "changed\n");
+
+    const result = cli(["check"]);
+
+    assert.equal(result.status, 1);
+    assert.match(result.output, /edited by hand: code-audit/);
+  });
+
+  test("the lock is version 2 only while some skill has editable files", () => {
+    publishEditable("Conventions: none yet.\n", "v1.0.0");
+    setSources([{ catalog: `file://${origin}`, skills: ["code-audit"] }]);
+    assert.equal(cli(["install"]).status, 0);
+    const withEditable = lock().lockVersion;
+    writeCatalog(origin, [{ name: "code-audit" }]);
+    release(origin, "v1.1.0");
+
+    const result = cli(["update"]);
+
+    assert.equal(result.status, 0, result.output);
+    assert.equal(withEditable, 2);
+    assert.match(result.output, /code-audit: project\.md is no longer editable; the repo's copy will be removed/);
+    assert.equal(lock().lockVersion, 1);
+    assert.equal(lock().skills["code-audit"].editable, undefined);
+    assert.equal(existsSync(auditFile("project.md")), false);
+  });
+
+  test("an editable path that climbs out of the skill is rejected", () => {
+    writeCatalog(origin, [{ name: "code-audit", editable: ["../outside.md"] }]);
+    release(origin, "v1.0.0");
+    setSources([{ catalog: `file://${origin}`, skills: ["code-audit"] }]);
+
+    const result = cli(["install"]);
+
+    assert.equal(result.status, 1);
+    assert.match(result.output, /relative and without/);
   });
 });

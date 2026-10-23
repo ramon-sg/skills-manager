@@ -197,18 +197,34 @@ export function manifestPlugins(manifest) {
 
 /**
  * Hash of the installed content of a skill, or `undefined` if it is missing.
+ * Its editable files do not count: the repo may change them.
  *
  * @param paths - Paths from `resolvePaths`.
  * @param name - Skill name.
+ * @param editable - Paths inside the skill left out of the hash.
  * @returns `sha256-<hex>` or `undefined`.
  */
-export function installedHash(paths, name) {
+export function installedHash(paths, name, editable = []) {
   const dir = path.join(paths.skillsDir, name);
-  return existsSync(dir) ? hashFiles(walk(dir)) : undefined;
+  return existsSync(dir) ? hashFiles(walk(dir).filter((file) => !editable.includes(file.path))) : undefined;
 }
 
-/** Version of the lock format this tool writes; a lock without `lockVersion` is version 1. */
-export const LOCK_VERSION = 1;
+/** Lock format without editable files; a lock without `lockVersion` is this one. */
+export const BASE_LOCK_VERSION = 1;
+
+/** Newest lock format this tool reads and writes: version 1 plus `editable` in its skills. */
+export const LOCK_VERSION = 2;
+
+/**
+ * Lock format a set of skills needs: version 2 only if some skill has
+ * editable files, so a repo without them stays readable by older versions.
+ *
+ * @param skills - Lock skills.
+ * @returns The `lockVersion` to write.
+ */
+export function lockVersionFor(skills) {
+  return Object.values(skills).some((skill) => skill.editable !== undefined) ? LOCK_VERSION : BASE_LOCK_VERSION;
+}
 
 /**
  * Reads the lock, or an empty one if it does not exist yet.
@@ -220,7 +236,7 @@ export const LOCK_VERSION = 1;
 export function readLock(paths) {
   const file = paths.lock;
   const lock = existsSync(file) ? readJson(file) : {};
-  const lockVersion = lock.lockVersion === undefined ? LOCK_VERSION : lock.lockVersion;
+  const lockVersion = lock.lockVersion === undefined ? BASE_LOCK_VERSION : lock.lockVersion;
   if (!Number.isInteger(lockVersion) || lockVersion < 1) {
     throw new Error(`The lock has an invalid lockVersion: ${lockVersion}.`);
   }

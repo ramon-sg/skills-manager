@@ -56,6 +56,10 @@ A catalog is a repo of shared skills (`skills-catalog.json` at its root).
 
 `update <name>` moves only that skill of the catalog.
 
+A catalog skill may have editable files (the `editable` list in the lock, for
+example `project.md`): those belong to the repo and can be changed by hand;
+every other file of the skill cannot.
+
 ## Before applying and after
 
 1. Show the change: `git diff --stat .agents/skills` and the diff of every

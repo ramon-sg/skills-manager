@@ -37,6 +37,12 @@ const PEELED_SUFFIX = "^{}";
 /** Keys allowed in a catalog manifest entry. */
 const ENTRY_KEYS = ["catalog", "ref", "skills"];
 
+/** Suffix of the file an editable file is created from. */
+export const TEMPLATE_SUFFIX = ".template";
+
+/** File that defines a skill; it can never be editable. */
+const SKILL_DEFINITION = "SKILL.md";
+
 /** Longest description shown in the menu, in characters. */
 const MAX_DESCRIPTION = 72;
 
@@ -181,8 +187,9 @@ export function latestRelease(repo, ref) {
  * Validates one skill of a catalog file.
  *
  * @param skill - Entry of the `skills` list.
- * @returns `{ name, path, category, requires }`, with defaults filled in.
- * @throws {Error} If the name or path are not valid, or `requires` is not a list of names.
+ * @returns `{ name, path, category, requires, editable }`, with defaults filled in.
+ * @throws {Error} If the name or path are not valid, `requires` is not a list of
+ * names, or `editable` is not a list of relative paths other than `SKILL.md`.
  */
 function catalogSkill(skill) {
   if (skill === null || typeof skill !== "object") {
@@ -194,15 +201,23 @@ function catalogSkill(skill) {
     throw new Error(`"requires" of ${name} must be a list.`);
   }
   requires.forEach(assertSkillName);
+  const editable = skill.editable ?? [];
+  if (!Array.isArray(editable)) {
+    throw new Error(`"editable" of ${name} must be a list.`);
+  }
+  const files = editable.map(assertRelPath);
+  if (files.includes(SKILL_DEFINITION)) {
+    throw new Error(`"editable" of ${name} cannot include ${SKILL_DEFINITION}.`);
+  }
   const category = typeof skill.category === "string" && skill.category !== "" ? skill.category : DEFAULT_CATEGORY;
-  return { name, path: assertRelPath(skill.path), category, requires };
+  return { name, path: assertRelPath(skill.path), category, requires, editable: files };
 }
 
 /**
  * Reads and validates `skills-catalog.json` from a catalog checkout.
  *
  * @param tree - Catalog checkout.
- * @returns Skill name to `{ name, path, category, requires }`.
+ * @returns Skill name to `{ name, path, category, requires, editable }`.
  * @throws {Error} If the file is missing or invalid, its `catalogVersion` is
  * newer than this tool's, a name repeats or a `requires` names a skill the
  * catalog does not have.

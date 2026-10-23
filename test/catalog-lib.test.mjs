@@ -6,7 +6,11 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { assertCatalogEntry, highestRelease, skillDescription, withRequires } from "../src/catalog.mjs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { assertCatalogEntry, highestRelease, readCatalog, skillDescription, withRequires } from "../src/catalog.mjs";
 import { catalogMenu, mergeSources, parseManifest, parseSelect } from "../src/lib.mjs";
 
 /**
@@ -72,6 +76,19 @@ describe("highestRelease", () => {
 
     assert.deepEqual(highestRelease(refs), { tag: "v1.10.0", commit: "b" });
     assert.equal(highestRelease(new Map([["refs/heads/main", "x"]])), undefined);
+  });
+});
+
+describe("readCatalog", () => {
+  test("SKILL.md cannot be editable", () => {
+    const tree = mkdtempSync(join(tmpdir(), "catalog-lib-"));
+    writeFileSync(join(tree, "skills-catalog.json"), JSON.stringify({ skills: [{ name: "a", path: "skills/a", editable: ["SKILL.md"] }] }));
+
+    try {
+      assert.throws(() => readCatalog(tree), /cannot include SKILL\.md/);
+    } finally {
+      rmSync(tree, { recursive: true, force: true });
+    }
   });
 });
 

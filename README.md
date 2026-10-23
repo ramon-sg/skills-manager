@@ -156,6 +156,8 @@ in `skills-catalog.json` at its root:
 
 - `name` and `path` are required; `category` groups the menu (`Other` if missing).
 - `requires` lists skills of the same catalog that are installed along with it.
+- `editable` lists files of the skill that belong to each repo (see
+  [Editable files](#editable-files)).
 - The menu description is the first sentence of the `description` in each
   `SKILL.md` frontmatter.
 - A release is a `vX.Y.Z` tag. Without `ref`, `install` takes the highest one (or
@@ -179,6 +181,29 @@ Each catalog skill is pinned on its own: the lock keeps its tag, commit and
 `requires`. `update <name>` moves only that skill (and anything new it now
 requires) to the latest release; the other skills of the catalog stay where they
 are. `update` without a name moves them all.
+
+### Editable files
+
+A shared skill often needs a little of each repo: where plans live, the test
+command, local conventions. A catalog skill can declare files the repo owns:
+
+```json
+{ "name": "code-audit", "path": "skills/code-audit", "editable": ["project.md"] }
+```
+
+- On install, a missing `project.md` is created from `project.md.template` in the
+  skill (or from the `project.md` the skill ships, if it has no template).
+- The repo can edit it: it is left out of the hash, so `check` does not flag it,
+  and `install` and `update` keep the repo's copy when they rebuild the skill.
+- Every other file of the skill, the template included, is still pinned.
+- If the repo deletes it, the next `install` creates it again, at the pinned
+  version of the skill.
+- If a new version stops declaring a file editable, `update --dry-run` warns that
+  the repo's copy will be removed (or replaced, if the skill now ships it).
+
+The lock records the editable files of each skill and is then written as
+`lockVersion: 2`, which older versions of this tool refuse to read. A lock with
+no editable files stays at version 1.
 
 ## Disabled plugins in the project
 

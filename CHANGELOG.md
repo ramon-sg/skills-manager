@@ -17,6 +17,10 @@ All notable changes to this project are documented here. The format follows
 - `init` and `add` take `--catalog <repo>[#ref]` (repeatable): a menu grouped
   by category with each skill's description, `--candidates` as JSON and
   `--select catalog:<catalog>/<skill>`.
+- `editable` files in a catalog skill (for example `project.md`): created from
+  `<file>.template` when missing, left out of the hash and kept on `install` and
+  `update`. A lock that records them is written as `lockVersion: 2`; one without
+  them stays at version 1.
 
 ## 1.0.0
 

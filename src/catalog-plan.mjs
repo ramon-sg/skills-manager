@@ -2,7 +2,8 @@
  * @file Resolves a catalog source skill by skill, which is what lets
  * `update <name>` move one skill without touching the others of the same
  * catalog. Each skill asked for, and each one it requires, is either kept as
- * it is (pinned and on disk), rebuilt at its lock commit (pinned but missing)
+ * it is (pinned and on disk), rebuilt at its lock commit (pinned but missing,
+ * or missing one of its editable files)
  * or fetched at the latest release (new, or named in `update`). Each commit is
  * fetched at most once.
  */
@@ -10,7 +11,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { catalogRepo, latestRelease, readCatalog, withRequires } from "./catalog.mjs";
-import { fetchSource, insideTree, walk } from "./git.mjs";
+import { assertRelPath, fetchSource, insideTree, walk } from "./git.mjs";
 import { installedHash, isRegularFile, SKILL_FILE } from "./state.mjs";
 
 /** License copied from the catalog root into each skill. */
@@ -21,12 +22,14 @@ const TAG_PREFIX = "v";
 
 /**
  * Builds the files of one catalog skill from a checkout, adding the catalog's
- * license if the skill has none.
+ * license if the skill has none. Editable files are left out of `files`: they
+ * belong to the repo, and `writeAll` creates them from their template or from
+ * the copy the skill ships (`defaults`).
  *
  * @param tree - Catalog checkout.
- * @param item - Catalog entry `{ name, path, requires }`.
+ * @param item - Catalog entry `{ name, path, requires, editable }`.
  * @param release - `{ commit, tag? }` the checkout is at.
- * @returns The skill with name, path, files, commit, tag, version and requires.
+ * @returns The skill with name, path, files, defaults, commit, tag, version, requires and editable.
  * @throws {Error} If the folder has no `SKILL.md`, contains symlinks or escapes the checkout.
  */
 function buildSkill(tree, item, { commit, tag }) {
@@ -34,13 +37,29 @@ function buildSkill(tree, item, { commit, tag }) {
   if (!isRegularFile(path.join(dir, SKILL_FILE))) {
     throw new Error(`"${item.name}" has no ${SKILL_FILE} at ${item.path}.`);
   }
-  const files = walk(dir);
+  const all = walk(dir);
+  const files = all.filter((file) => !item.editable.includes(file.path));
+  const defaults = all.filter((file) => item.editable.includes(file.path));
   const license = path.join(tree, LICENSE);
   if (isRegularFile(license) && !files.some((file) => file.path === LICENSE)) {
     files.push({ path: LICENSE, content: readFileSync(license) });
   }
   const version = tag?.startsWith(TAG_PREFIX) ? tag.slice(TAG_PREFIX.length) : tag;
-  return { name: item.name, path: item.path, files, commit, tag, version, requires: item.requires };
+  return { name: item.name, path: item.path, files, defaults, commit, tag, version, requires: item.requires, editable: item.editable };
+}
+
+/**
+ * Tells whether an installed skill can be left as it is: it is on disk with
+ * all its editable files. One that lost an editable file is rebuilt at its
+ * lock commit, which creates the file again and keeps the others.
+ *
+ * @param paths - Paths from `resolvePaths`.
+ * @param name - Skill name.
+ * @param editable - Its editable paths, from the lock.
+ * @returns `true` if nothing is missing.
+ */
+function isComplete(paths, name, editable) {
+  return installedHash(paths, name) !== undefined && editable.every((rel) => isRegularFile(path.join(paths.skillsDir, name, assertRelPath(rel))));
 }
 
 /**
@@ -72,7 +91,7 @@ export function resolveCatalogPlan(plan, { paths, lock, update, temp, index }) {
   const resolve = (name) => {
     const locked = lock.skills[name]?.source === plan.key ? lock.skills[name] : undefined;
     const fresh = locked === undefined || update === true || update === name;
-    if (!fresh && installedHash(paths, name) !== undefined) {
+    if (!fresh && isComplete(paths, name, locked.editable ?? [])) {
       keep.push(name);
       return locked.requires ?? [];
     }

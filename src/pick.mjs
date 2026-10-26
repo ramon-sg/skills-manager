@@ -198,7 +198,8 @@ async function choose(args, candidates) {
  * repos), adds it to the manifest and installs.
  *
  * @param root - Repo root.
- * @param opts - `{ init, args, home, install }`; `install` runs the installation.
+ * @param opts - `{ init, args, home, install }`; `install` runs the installation (it may
+ * ask before replacing an own skill, so it is awaited).
  * @throws {Error} If `init` finds a manifest, `add` does not find one, the
  * pick is not valid or the installation fails (with the manifest already restored).
  */
@@ -222,7 +223,7 @@ export async function commandPick(root, { init, args, home, install }) {
   const previous = existsSync(file) ? readFileSync(file, "utf8") : undefined;
   writeManifest(root, { ...manifest, sources: mergeSources(manifest?.sources ?? [], sources) });
   try {
-    install();
+    await install();
   } catch (error) {
     if (previous === undefined) {
       rmSync(file, { force: true });

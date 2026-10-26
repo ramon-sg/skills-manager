@@ -11,6 +11,8 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { installAsking, OwnSkillsError } from "../src/cli.mjs";
+
 /** The CLI under test. */
 const CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "src", "cli.mjs");
 
@@ -631,5 +633,180 @@ describe("editable files", () => {
 
     assert.equal(result.status, 1);
     assert.match(result.output, /relative and without/);
+  });
+});
+
+describe("own skills with the name of an incoming one", () => {
+  /**
+   * Publishes `code-audit` with an editable `project.md`, and gives the repo its own
+   * `code-audit` with an extra file and its own `project.md`.
+   */
+  function ownAudit() {
+    write(join(origin, "skills/code-audit/project.md.template"), "Template.\n");
+    writeCatalog(origin, [{ name: "code-audit", editable: ["project.md"] }, { name: "planning" }, { name: "narrative-summary" }]);
+    release(origin, "v1.0.0");
+    write(join(repo, ".agents/skills/code-audit/SKILL.md"), "the repo's own audit\n");
+    write(join(repo, ".agents/skills/code-audit/labels.md"), "own notes\n");
+    write(join(repo, ".agents/skills/code-audit/project.md"), "Kaname rules.\n");
+    setSources([{ catalog: `file://${origin}`, skills: ["code-audit"] }]);
+  }
+
+  test("without a terminal nor --replace it stops, says how to allow it, and leaves the own folder", () => {
+    ownAudit();
+
+    const result = cli(["install"]);
+
+    assert.equal(result.status, 1);
+    assert.match(result.output, /"code-audit" .* already exists as an own skill/);
+    assert.match(result.output, /--replace code-audit/);
+    assert.equal(installed("code-audit"), "the repo's own audit\n");
+    assert.equal(existsSync(join(repo, LOCK)), false);
+  });
+
+  test("--replace replaces the own folder with the incoming skill, and keeps its project.md", () => {
+    ownAudit();
+
+    const result = cli(["install", "--replace", "code-audit"]);
+
+    assert.equal(result.status, 0, result.output);
+    assert.match(installed("code-audit"), /audit v1/);
+    assert.equal(existsSync(join(repo, ".agents/skills/code-audit/labels.md")), false);
+    assert.equal(readFileSync(join(repo, ".agents/skills/code-audit/project.md"), "utf8"), "Kaname rules.\n");
+    assert.equal(lock().skills["code-audit"].tag, "v1.0.0");
+    assert.equal(cli(["check"]).status, 0);
+  });
+
+  test("--replace with another name does not allow it", () => {
+    ownAudit();
+
+    const result = cli(["install", "--replace=planning"]);
+
+    assert.equal(result.status, 1);
+    assert.match(result.output, /--replace code-audit; replacing deletes each own folder: code-audit \(keeps project\.md\)/);
+    assert.equal(installed("code-audit"), "the repo's own audit\n");
+  });
+
+  test("update --dry-run says what it would replace, without --replace and without asking", () => {
+    ownAudit();
+
+    const result = cli(["update", "--dry-run"]);
+
+    assert.equal(result.status, 0, result.output);
+    assert.match(result.output, /code-audit: new \(v1\.0\.0 [0-9a-f]+\), replaces the repo's own folder/);
+    assert.equal(installed("code-audit"), "the repo's own audit\n");
+  });
+
+  test("the hint names every own skill to replace, and says which keep nothing", () => {
+    ownAudit();
+    writeCatalog(origin, [{ name: "code-audit", editable: ["project.md"], requires: ["planning"] }, { name: "planning" }, { name: "narrative-summary" }]);
+    release(origin, "v1.1.0");
+    write(join(repo, ".agents/skills/planning/SKILL.md"), "the repo's own planning\n");
+    write(join(repo, ".agents/skills/planning/project.md"), "not editable there\n");
+
+    const result = cli(["install", "--replace", "code-audit"]);
+
+    assert.equal(result.status, 1);
+    assert.match(result.output, /--replace code-audit,planning; replacing deletes each own folder: planning \(nothing in its folder is kept\)/);
+  });
+
+  test("a clash between two catalogs is not offered as a replace, even with an own skill too", () => {
+    ownAudit();
+    const other = makeOrigin("other");
+    writeSkill(other, "code-audit", "other audit");
+    writeCatalog(other, [{ name: "code-audit" }]);
+    release(other, "v1.0.0");
+    setSources([{ catalog: `file://${origin}`, skills: ["code-audit"] }, { catalog: `file://${other}`, skills: ["code-audit"] }]);
+
+    const result = cli(["install"]);
+
+    assert.equal(result.status, 1);
+    assert.doesNotMatch(result.output, /--replace/);
+  });
+
+  test("--replace only goes with the commands that install", () => {
+    const result = cli(["check", "--replace", "code-audit"]);
+
+    assert.equal(result.status, 2);
+    assert.match(result.output, /--replace goes with install, update, init or add/);
+  });
+
+  test("add --select with --replace adds the source and replaces; without it the manifest stays as it was", () => {
+    ownAudit();
+    setSources([{ catalog: `file://${origin}`, skills: ["planning"] }]);
+    const before = readFileSync(join(repo, ".agents/skills.json"), "utf8");
+    rmSync(join(repo, ".agents/skills/planning"), { recursive: true, force: true });
+
+    const refused = cli(["add", "--catalog", `file://${origin}`, "--select", `catalog:file://${origin}/code-audit`]);
+    const kept = readFileSync(join(repo, ".agents/skills.json"), "utf8");
+    const added = cli(["add", "--catalog", `file://${origin}`, "--select", `catalog:file://${origin}/code-audit`, "--replace", "code-audit"]);
+
+    assert.equal(refused.status, 1);
+    assert.equal(kept, before);
+    assert.equal(added.status, 0, added.output);
+    assert.match(installed("code-audit"), /audit v1/);
+    assert.deepEqual(JSON.parse(readFileSync(join(repo, ".agents/skills.json"), "utf8")).sources[0].skills.sort(), ["code-audit", "planning"]);
+  });
+
+  test("--replace without names is a usage error", () => {
+    const result = cli(["install", "--replace"]);
+
+    assert.equal(result.status, 2);
+    assert.match(result.output, /--replace needs the names/);
+  });
+});
+
+describe("asking before replacing, as in a terminal", () => {
+  /**
+   * Gives the repo its own `code-audit` with a `project.md`, and a catalog source with
+   * `code-audit` declaring it editable.
+   */
+  function ownAudit() {
+    write(join(origin, "skills/code-audit/project.md.template"), "Template.\n");
+    writeCatalog(origin, [{ name: "code-audit", editable: ["project.md"] }]);
+    release(origin, "v1.0.0");
+    write(join(repo, ".agents/skills/code-audit/SKILL.md"), "the repo's own audit\n");
+    write(join(repo, ".agents/skills/code-audit/project.md"), "Kaname rules.\n");
+    setSources([{ catalog: `file://${origin}`, skills: ["code-audit"] }]);
+  }
+
+  /**
+   * A question that answers with the given names and records what it was asked.
+   *
+   * @param answer - The names it allows, given what was asked.
+   * @returns The asker and the list of what it was asked.
+   */
+  function asker(answer) {
+    const asked = [];
+    return { asked, ask: { interactive: true, askReplace: async (skills) => { asked.push(skills); return answer(skills); } } };
+  }
+
+  test("a yes replaces the skill after asking once, saying the project.md is kept", async () => {
+    ownAudit();
+    const { asked, ask } = asker((skills) => skills.map((skill) => skill.name));
+
+    await installAsking(repo, { home, log: () => {} }, ask);
+
+    assert.deepEqual(asked, [[{ name: "code-audit", keeps: ["project.md"] }]]);
+    assert.match(installed("code-audit"), /audit v1/);
+    assert.equal(readFileSync(join(repo, ".agents/skills/code-audit/project.md"), "utf8"), "Kaname rules.\n");
+  });
+
+  test("a no stops without changes and without the hint to run it in a terminal", async () => {
+    ownAudit();
+    const { asked, ask } = asker(() => []);
+
+    await assert.rejects(installAsking(repo, { home, log: () => {} }, ask), (error) => /Nothing changed/.test(error.message) && !/in a terminal/.test(error.message));
+
+    assert.equal(asked.length, 1);
+    assert.equal(installed("code-audit"), "the repo's own audit\n");
+  });
+
+  test("without a terminal it does not ask", async () => {
+    ownAudit();
+    const { asked, ask } = asker((skills) => skills.map((skill) => skill.name));
+
+    await assert.rejects(installAsking(repo, { home, log: () => {} }, { ...ask, interactive: false }), OwnSkillsError);
+
+    assert.equal(asked.length, 0);
   });
 });

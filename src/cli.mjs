@@ -11,6 +11,11 @@
  *                                       catalogs given with --catalog, and install it
  *                                       (--candidates lists as JSON; --select picks without asking)
  *
+ * An incoming skill with the name of one of the repo's own skills (a folder the lock does
+ * not know) replaces it only if allowed: in a terminal it asks for each one; without one,
+ * `--replace <names>` names them. The own folder is deleted, but an editable file in it
+ * (`project.md`) is kept as the repo's copy.
+ *
  * The manifest (`.agents/skills.json`) says what is wanted; the lock
  * (`.agents/skills.lock.json`) pins the commit and hash of each skill. Plugins
  * are resolved with the marketplaces in `~/.claude/plugins`, locals are
@@ -28,8 +33,9 @@ import { fileURLToPath } from "node:url";
 
 import { catalogRepo, latestRelease, TEMPLATE_SUFFIX, withRequires } from "./catalog.mjs";
 import { resolveCatalogPlan } from "./catalog-plan.mjs";
+import { askReplace } from "./prompt.mjs";
 import { assertRelPath, assertRepo, assertSkillName, fetchSource, git, insideTree, latestCommit, walk } from "./git.mjs";
-import { diffLock, findCollisions, hashFiles, resolvePluginSource, rewritePluginRefs } from "./lib.mjs";
+import { diffLock, findCollisions, hashFiles, keptText, resolvePluginSource, rewritePluginRefs } from "./lib.mjs";
 import { sessionNotice } from "./notice.mjs";
 import { commandPick } from "./pick.mjs";
 import {
@@ -291,9 +297,10 @@ function droppedEditable(paths, lock, skill) {
  * @param plans - Plans with their skills already built.
  * @param stale - Lock skills whose source is no longer in the manifest.
  * @param lock - Previous lock.
+ * @param replace - Own skills that will be replaced.
  * @returns One line per change.
  */
-function describeChanges(paths, plans, stale, lock) {
+function describeChanges(paths, plans, stale, lock, replace) {
   const lines = stale.map((name) => `${name}: will be removed`);
   for (const plan of plans.filter((candidate) => candidate.skills !== undefined)) {
     lines.push(...leavingNames(plan, plans).map((name) => `${name}: will be removed`));
@@ -303,7 +310,7 @@ function describeChanges(paths, plans, stale, lock) {
       const known = Object.hasOwn(lock.skills, name);
       const old = known ? lock.skills[name].commit : undefined;
       if (!known) {
-        lines.push(`${name}: new (${label})`);
+        lines.push(`${name}: new (${label})${replace.has(name) && existsSync(path.join(paths.skillsDir, name)) ? ", replaces the repo's own folder" : ""}`);
         continue;
       }
       if (old !== commit) {
@@ -338,15 +345,35 @@ function fetchPlans(plans, temp, context) {
   }
 }
 
+/** Error of an install that would replace own skills nobody allowed it to replace. */
+export class OwnSkillsError extends Error {
+  /**
+   * @param clashes - One line per clash.
+   * @param skills - Each own skill that clashes, with the files of its folder that
+   * replacing it keeps (the incoming skill's editable files the folder already has).
+   * @param hint - How to allow them.
+   */
+  constructor(clashes, skills, hint) {
+    super(`${clashes}\n${hint}`);
+    this.clashes = clashes;
+    this.skills = skills;
+    this.names = skills.map((skill) => skill.name);
+  }
+}
+
+
 /**
- * Stops if an incoming skill clashes with an own one or with another origin's.
+ * Stops if an incoming skill clashes with an own one not allowed to be replaced, or with
+ * another origin's.
  *
  * @param paths - Paths from `resolvePaths`.
  * @param plans - Plans with their skills already built.
  * @param lock - Previous lock; what is in it is not own.
- * @throws {Error} With one message per collision.
+ * @param replace - Own skills allowed to be replaced.
+ * @throws {OwnSkillsError} If the only clashes are with own skills; {Error} with one message
+ * per collision otherwise.
  */
-function assertNoCollisions(paths, plans, lock) {
+function assertNoCollisions(paths, plans, lock, replace) {
   const incoming = new Map();
   for (const plan of plans) {
     const names = plan.skills === undefined ? plan.names : [...plan.skills.map((skill) => skill.name), ...(plan.keep ?? [])];
@@ -356,10 +383,25 @@ function assertNoCollisions(paths, plans, lock) {
   }
   const skillsRoot = paths.skillsDir;
   const existing = existsSync(skillsRoot) ? readdirSync(skillsRoot) : [];
-  const collisions = findCollisions(incoming, new Set(existing.filter((name) => !Object.hasOwn(lock.skills, name))));
-  if (collisions.length > 0) {
+  const own = new Set(existing.filter((name) => !Object.hasOwn(lock.skills, name) && !replace.has(name)));
+  const collisions = findCollisions(incoming, own);
+  if (collisions.length === 0) {
+    return;
+  }
+  const clashing = [...incoming.keys()].filter((name) => own.has(name));
+  const acrossOrigins = [...incoming.values()].some((origins) => new Set(origins).size > 1);
+  if (acrossOrigins || clashing.length < collisions.length) {
     throw new Error(collisions.join("\n"));
   }
+  const built = new Map(plans.flatMap((plan) => (plan.skills ?? []).map((skill) => [skill.name, skill])));
+  const skills = clashing.map((name) => ({
+    name,
+    keeps: (built.get(name)?.editable ?? []).filter((rel) => isRegularFile(path.join(skillsRoot, name, assertRelPath(rel)))),
+  }));
+  const allowed = [...[...replace].filter((name) => incoming.has(name)), ...clashing];
+  const each = skills.map((skill) => `${skill.name} (${keptText(skill.keeps)})`).join(", ");
+  const hint = `Run it in a terminal to be asked, or again with --replace ${allowed.join(",")}; replacing deletes each own folder: ${each}.`;
+  throw new OwnSkillsError(collisions.join("\n"), skills, hint);
 }
 
 /**
@@ -369,11 +411,13 @@ function assertNoCollisions(paths, plans, lock) {
  * if they are named.
  *
  * @param root - Repo root.
- * @param opts - `{ home, update?: true | name, dryRun?, log? }`.
+ * @param opts - `{ home, update?: true | name, dryRun?, log?, replace? }`; `replace` is the
+ * set of own skills allowed to be replaced.
  * @returns `{ changed }`: whether the lock was written.
- * @throws {Error} If a skill was edited by hand, there are collisions, invalid data or git fails.
+ * @throws {OwnSkillsError} If it would replace own skills not in `replace`; {Error} if a
+ * skill was edited by hand, there are collisions, invalid data or git fails.
  */
-export function installAll(root, { home, update, dryRun = false, log = console.log }) {
+export function installAll(root, { home, update, dryRun = false, log = console.log, replace = new Set() }) {
   const manifest = readManifest(root);
   if (manifest === undefined) {
     log(`No ${path.relative(root, resolvePaths(root).manifest)}: nothing to install.`);
@@ -391,8 +435,8 @@ export function installAll(root, { home, update, dryRun = false, log = console.l
   const temp = mkdtempSync(path.join(tmpdir(), "skills-"));
   try {
     fetchPlans(plans, temp, context);
-    assertNoCollisions(paths, plans, lock);
-    describeChanges(paths, plans, stale, lock).forEach((line) => log(line));
+    assertNoCollisions(paths, plans, lock, replace);
+    describeChanges(paths, plans, stale, lock, replace).forEach((line) => log(line));
     return dryRun ? { changed: false } : writeAll(paths, { plans, stale, lock, manifest });
   } finally {
     rmSync(temp, { recursive: true, force: true });
@@ -595,30 +639,107 @@ function commandSessionNotice() {
   }
 }
 
+/** Option naming the own skills an install may replace. */
+const REPLACE_FLAG = "--replace";
+
+/**
+ * Takes `--replace <names>` (or `--replace=<names>`) out of the arguments.
+ *
+ * @param args - Subcommand arguments.
+ * @returns The other arguments and the set of names.
+ * @throws {Error} Usage error (exits with 2) if it has no value.
+ */
+function takeReplace(args) {
+  const rest = [];
+  const names = new Set();
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    const inline = arg.startsWith(`${REPLACE_FLAG}=`) ? arg.slice(REPLACE_FLAG.length + 1) : undefined;
+    if (arg !== REPLACE_FLAG && inline === undefined) {
+      rest.push(arg);
+      continue;
+    }
+    const value = inline ?? args[index + 1];
+    if (value === undefined || value.startsWith("--")) {
+      throw Object.assign(new Error(`${REPLACE_FLAG} needs the names of the skills to replace.`), { exitCode: 2 });
+    }
+    if (inline === undefined) {
+      index += 1;
+    }
+    value.split(",").map((name) => name.trim()).filter(Boolean).forEach((name) => names.add(name));
+  }
+  return { rest, names };
+}
+
+/**
+ * Runs `installAll`, and if it would replace own skills, asks in a terminal whether to
+ * replace each one and runs it again with the ones allowed. Without a terminal it stops,
+ * saying to use `--replace`. A dry run asks nothing: it shows what it would replace.
+ *
+ * @param root - Repo root.
+ * @param opts - What `installAll` takes, `replace` included.
+ * @param ask - `{ interactive, askReplace }`: whether there is a terminal, and the question
+ * (the tests pass their own; the CLI passes the process's terminal and `prompt.mjs`).
+ * @returns What `installAll` returns.
+ * @throws {OwnSkillsError} Without a terminal, if an own skill is not allowed; {Error} if
+ * the person says no; what `installAll` throws.
+ */
+export async function installAsking(root, opts, ask) {
+  const replace = new Set(opts.replace);
+  for (;;) {
+    try {
+      return installAll(root, { ...opts, replace });
+    } catch (error) {
+      if (!(error instanceof OwnSkillsError)) {
+        throw error;
+      }
+      if (opts.dryRun === true) {
+        error.names.forEach((name) => replace.add(name));
+        continue;
+      }
+      if (!ask.interactive) {
+        throw error;
+      }
+      const allowed = await ask.askReplace(error.skills);
+      if (allowed.length < error.names.length) {
+        throw new Error(`${error.clashes}\nNothing changed.`);
+      }
+      allowed.forEach((name) => replace.add(name));
+    }
+  }
+}
+
+/** How the CLI asks: the process's terminal and the questions of `prompt.mjs`. */
+const TERMINAL = { get interactive() { return process.stdin.isTTY === true; }, askReplace };
+
 /**
  * Entry point: finds the repo root and dispatches the subcommand. Errors end
  * with their `exitCode` (2 for usage errors) or with 1.
  */
 async function main() {
-  const [subcommand, ...rest] = process.argv.slice(2);
+  const [subcommand, ...args] = process.argv.slice(2);
   const home = process.env.SKILLS_HOME ?? homedir();
   if (subcommand === "session-notice") {
     commandSessionNotice();
     return;
   }
   try {
+    const { rest, names: replace } = takeReplace(args);
+    if (replace.size > 0 && !["install", "update", "init", "add"].includes(subcommand)) {
+      throw Object.assign(new Error(`${REPLACE_FLAG} goes with install, update, init or add.`), { exitCode: 2 });
+    }
     const root = git(["rev-parse", "--show-toplevel"], process.cwd());
     if (subcommand === "install") {
-      installAll(root, { home });
+      await installAsking(root, { home, replace }, TERMINAL);
     } else if (subcommand === "update") {
       const name = rest.find((arg) => !arg.startsWith("--"));
-      installAll(root, { home, update: name ?? true, dryRun: rest.includes("--dry-run") });
+      await installAsking(root, { home, update: name ?? true, dryRun: rest.includes("--dry-run"), replace }, TERMINAL);
     } else if (subcommand === "check") {
       commandCheck(root);
     } else if (subcommand === "list") {
       commandList(root, home);
     } else if (subcommand === "init" || subcommand === "add") {
-      await commandPick(root, { init: subcommand === "init", args: rest, home, install: () => installAll(root, { home }) });
+      await commandPick(root, { init: subcommand === "init", args: rest, home, install: () => installAsking(root, { home, replace }, TERMINAL) });
     } else {
       throw new Error(`Unknown subcommand: ${subcommand ?? "(none)"}; use install, update, check, list, session-notice, init or add`);
     }

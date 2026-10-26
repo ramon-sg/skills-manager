@@ -8,7 +8,7 @@
  */
 import { confirm, groupMultiselect, intro, isCancel, multiselect, note, outro, select } from "@clack/prompts";
 
-import { catalogMenu, menuOptions, pickSummary } from "./lib.mjs";
+import { catalogMenu, keptText, menuOptions, pickSummary } from "./lib.mjs";
 
 /** Answer "take all the plugin's skills". */
 const ALL_SKILLS = "all";
@@ -159,4 +159,24 @@ export async function askInteractively(candidates) {
     picks.push(candidate?.kind === "plugin" ? await askSkills(candidate) : { id });
   }
   return confirmPicks(picks, candidates);
+}
+
+/**
+ * Asks, for each own skill an install would replace, whether to replace it with the
+ * incoming one, saying what of its folder is kept.
+ *
+ * @param skills - The own skills that clash, each `{ name, keeps }`.
+ * @returns The names the person allowed, in order; it stops at the first no.
+ * @throws {Error} If cancelled.
+ */
+export async function askReplace(skills) {
+  const allowed = [];
+  for (const { name, keeps } of skills) {
+    const yes = orCancel(await confirm({ message: `The repo has its own "${name}" skill. Replace it with the incoming one? (its folder is deleted; ${keptText(keeps)})`, initialValue: false }));
+    if (!yes) {
+      break;
+    }
+    allowed.push(name);
+  }
+  return allowed;
 }

@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## 1.2.0
+
+### Added
+
+- An incoming skill with the name of one of the repo's own skills can replace it:
+  in a terminal `install`, `update`, `init` and `add` ask for each one; without a
+  terminal, `--replace <names>` allows them. An editable file the own folder already
+  has (`project.md`) is kept. Before, they always stopped.
+
 ## 1.1.0
 
 ### Added

@@ -35,7 +35,7 @@ import { catalogRepo, latestRelease, TEMPLATE_SUFFIX, withRequires } from "./cat
 import { resolveCatalogPlan } from "./catalog-plan.mjs";
 import { askReplace } from "./prompt.mjs";
 import { assertRelPath, assertRepo, assertSkillName, fetchSource, git, insideTree, latestCommit, walk } from "./git.mjs";
-import { diffLock, findCollisions, hashFiles, resolvePluginSource, rewritePluginRefs } from "./lib.mjs";
+import { diffLock, findCollisions, hashFiles, keptText, resolvePluginSource, rewritePluginRefs } from "./lib.mjs";
 import { sessionNotice } from "./notice.mjs";
 import { commandPick } from "./pick.mjs";
 import {
@@ -348,14 +348,19 @@ function fetchPlans(plans, temp, context) {
 /** Error of an install that would replace own skills nobody allowed it to replace. */
 export class OwnSkillsError extends Error {
   /**
-   * @param message - One line per clash, and how to allow them.
-   * @param names - The own skills that clash.
+   * @param clashes - One line per clash.
+   * @param skills - Each own skill that clashes, with the files of its folder that
+   * replacing it keeps (the incoming skill's editable files the folder already has).
+   * @param hint - How to allow them.
    */
-  constructor(message, names) {
-    super(message);
-    this.names = names;
+  constructor(clashes, skills, hint) {
+    super(`${clashes}\n${hint}`);
+    this.clashes = clashes;
+    this.skills = skills;
+    this.names = skills.map((skill) => skill.name);
   }
 }
+
 
 /**
  * Stops if an incoming skill clashes with an own one not allowed to be replaced, or with
@@ -384,11 +389,19 @@ function assertNoCollisions(paths, plans, lock, replace) {
     return;
   }
   const clashing = [...incoming.keys()].filter((name) => own.has(name));
-  if (clashing.length < collisions.length) {
+  const acrossOrigins = [...incoming.values()].some((origins) => new Set(origins).size > 1);
+  if (acrossOrigins || clashing.length < collisions.length) {
     throw new Error(collisions.join("\n"));
   }
-  const hint = `Run it in a terminal to be asked, or again with --replace ${clashing.join(",")} to replace them: their folders are deleted, but a project.md in them is kept.`;
-  throw new OwnSkillsError(`${collisions.join("\n")}\n${hint}`, clashing);
+  const built = new Map(plans.flatMap((plan) => (plan.skills ?? []).map((skill) => [skill.name, skill])));
+  const skills = clashing.map((name) => ({
+    name,
+    keeps: (built.get(name)?.editable ?? []).filter((rel) => isRegularFile(path.join(skillsRoot, name, assertRelPath(rel)))),
+  }));
+  const allowed = [...[...replace].filter((name) => incoming.has(name)), ...clashing];
+  const each = skills.map((skill) => `${skill.name} (${keptText(skill.keeps)})`).join(", ");
+  const hint = `Run it in a terminal to be asked, or again with --replace ${allowed.join(",")}; replacing deletes each own folder: ${each}.`;
+  throw new OwnSkillsError(collisions.join("\n"), skills, hint);
 }
 
 /**
@@ -661,30 +674,43 @@ function takeReplace(args) {
 /**
  * Runs `installAll`, and if it would replace own skills, asks in a terminal whether to
  * replace each one and runs it again with the ones allowed. Without a terminal it stops,
- * saying to use `--replace`.
+ * saying to use `--replace`. A dry run asks nothing: it shows what it would replace.
  *
  * @param root - Repo root.
  * @param opts - What `installAll` takes, `replace` included.
+ * @param ask - `{ interactive, askReplace }`: whether there is a terminal, and the question
+ * (the tests pass their own; the CLI passes the process's terminal and `prompt.mjs`).
  * @returns What `installAll` returns.
- * @throws {OwnSkillsError} If an own skill is not allowed to be replaced; what `installAll` throws.
+ * @throws {OwnSkillsError} Without a terminal, if an own skill is not allowed; {Error} if
+ * the person says no; what `installAll` throws.
  */
-async function installAsking(root, opts) {
+export async function installAsking(root, opts, ask) {
   const replace = new Set(opts.replace);
   for (;;) {
     try {
       return installAll(root, { ...opts, replace });
     } catch (error) {
-      if (!(error instanceof OwnSkillsError) || !process.stdin.isTTY) {
+      if (!(error instanceof OwnSkillsError)) {
         throw error;
       }
-      const allowed = await askReplace(error.names);
-      if (allowed.length < error.names.length) {
+      if (opts.dryRun === true) {
+        error.names.forEach((name) => replace.add(name));
+        continue;
+      }
+      if (!ask.interactive) {
         throw error;
+      }
+      const allowed = await ask.askReplace(error.skills);
+      if (allowed.length < error.names.length) {
+        throw new Error(`${error.clashes}\nNothing changed.`);
       }
       allowed.forEach((name) => replace.add(name));
     }
   }
 }
+
+/** How the CLI asks: the process's terminal and the questions of `prompt.mjs`. */
+const TERMINAL = { get interactive() { return process.stdin.isTTY === true; }, askReplace };
 
 /**
  * Entry point: finds the repo root and dispatches the subcommand. Errors end
@@ -699,18 +725,21 @@ async function main() {
   }
   try {
     const { rest, names: replace } = takeReplace(args);
+    if (replace.size > 0 && !["install", "update", "init", "add"].includes(subcommand)) {
+      throw Object.assign(new Error(`${REPLACE_FLAG} goes with install, update, init or add.`), { exitCode: 2 });
+    }
     const root = git(["rev-parse", "--show-toplevel"], process.cwd());
     if (subcommand === "install") {
-      await installAsking(root, { home, replace });
+      await installAsking(root, { home, replace }, TERMINAL);
     } else if (subcommand === "update") {
       const name = rest.find((arg) => !arg.startsWith("--"));
-      await installAsking(root, { home, update: name ?? true, dryRun: rest.includes("--dry-run"), replace });
+      await installAsking(root, { home, update: name ?? true, dryRun: rest.includes("--dry-run"), replace }, TERMINAL);
     } else if (subcommand === "check") {
       commandCheck(root);
     } else if (subcommand === "list") {
       commandList(root, home);
     } else if (subcommand === "init" || subcommand === "add") {
-      await commandPick(root, { init: subcommand === "init", args: rest, home, install: () => installAsking(root, { home, replace }) });
+      await commandPick(root, { init: subcommand === "init", args: rest, home, install: () => installAsking(root, { home, replace }, TERMINAL) });
     } else {
       throw new Error(`Unknown subcommand: ${subcommand ?? "(none)"}; use install, update, check, list, session-notice, init or add`);
     }

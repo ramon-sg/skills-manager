@@ -499,3 +499,14 @@ export function mergeSources(existing, added) {
   }
   return merged;
 }
+
+/**
+ * What replacing an own skill's folder keeps, in words.
+ *
+ * @param keeps - The files it keeps.
+ * @returns A short clause.
+ * @example keptText(["project.md"]) // "keeps project.md"
+ */
+export function keptText(keeps) {
+  return keeps.length === 0 ? "nothing in its folder is kept" : `keeps ${keeps.join(", ")}`;
+}

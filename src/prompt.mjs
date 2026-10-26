@@ -160,3 +160,23 @@ export async function askInteractively(candidates) {
   }
   return confirmPicks(picks, candidates);
 }
+
+/**
+ * Asks, for each own skill an install would replace, whether to replace it with the
+ * incoming one. Its folder is deleted; a `project.md` in it is kept.
+ *
+ * @param names - The own skills that clash.
+ * @returns The names the person allowed, in order; it stops at the first no.
+ * @throws {Error} If cancelled.
+ */
+export async function askReplace(names) {
+  const allowed = [];
+  for (const name of names) {
+    const yes = orCancel(await confirm({ message: `The repo has its own "${name}" skill. Replace it with the incoming one? (its folder is deleted; a project.md in it is kept)`, initialValue: false }));
+    if (!yes) {
+      break;
+    }
+    allowed.push(name);
+  }
+  return allowed;
+}

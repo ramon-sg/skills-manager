@@ -633,3 +633,81 @@ describe("editable files", () => {
     assert.match(result.output, /relative and without/);
   });
 });
+
+describe("own skills with the name of an incoming one", () => {
+  /**
+   * Publishes `code-audit` with an editable `project.md`, and gives the repo its own
+   * `code-audit` with an extra file and its own `project.md`.
+   */
+  function ownAudit() {
+    write(join(origin, "skills/code-audit/project.md.template"), "Template.\n");
+    writeCatalog(origin, [{ name: "code-audit", editable: ["project.md"] }, { name: "planning" }, { name: "narrative-summary" }]);
+    release(origin, "v1.0.0");
+    write(join(repo, ".agents/skills/code-audit/SKILL.md"), "the repo's own audit\n");
+    write(join(repo, ".agents/skills/code-audit/labels.md"), "own notes\n");
+    write(join(repo, ".agents/skills/code-audit/project.md"), "Kaname rules.\n");
+    setSources([{ catalog: `file://${origin}`, skills: ["code-audit"] }]);
+  }
+
+  test("without a terminal nor --replace it stops, says how to allow it, and leaves the own folder", () => {
+    ownAudit();
+
+    const result = cli(["install"]);
+
+    assert.equal(result.status, 1);
+    assert.match(result.output, /"code-audit" .* already exists as an own skill/);
+    assert.match(result.output, /--replace code-audit/);
+    assert.equal(installed("code-audit"), "the repo's own audit\n");
+    assert.equal(existsSync(join(repo, LOCK)), false);
+  });
+
+  test("--replace replaces the own folder with the incoming skill, and keeps its project.md", () => {
+    ownAudit();
+
+    const result = cli(["install", "--replace", "code-audit"]);
+
+    assert.equal(result.status, 0, result.output);
+    assert.match(installed("code-audit"), /audit v1/);
+    assert.equal(existsSync(join(repo, ".agents/skills/code-audit/labels.md")), false);
+    assert.equal(readFileSync(join(repo, ".agents/skills/code-audit/project.md"), "utf8"), "Kaname rules.\n");
+    assert.equal(lock().skills["code-audit"].tag, "v1.0.0");
+    assert.equal(cli(["check"]).status, 0);
+  });
+
+  test("--replace with another name does not allow it, and update --dry-run says what it would replace", () => {
+    ownAudit();
+
+    const other = cli(["install", "--replace=planning"]);
+    const dry = cli(["update", "--dry-run", "--replace", "code-audit"]);
+
+    assert.equal(other.status, 1);
+    assert.match(other.output, /--replace code-audit/);
+    assert.equal(dry.status, 0, dry.output);
+    assert.match(dry.output, /code-audit: new \(v1\.0\.0 [0-9a-f]+\), replaces the repo's own folder/);
+    assert.equal(installed("code-audit"), "the repo's own audit\n");
+  });
+
+  test("add --select with --replace adds the source and replaces; without it the manifest stays as it was", () => {
+    ownAudit();
+    setSources([{ catalog: `file://${origin}`, skills: ["planning"] }]);
+    const before = readFileSync(join(repo, ".agents/skills.json"), "utf8");
+    rmSync(join(repo, ".agents/skills/planning"), { recursive: true, force: true });
+
+    const refused = cli(["add", "--catalog", `file://${origin}`, "--select", `catalog:file://${origin}/code-audit`]);
+    const kept = readFileSync(join(repo, ".agents/skills.json"), "utf8");
+    const added = cli(["add", "--catalog", `file://${origin}`, "--select", `catalog:file://${origin}/code-audit`, "--replace", "code-audit"]);
+
+    assert.equal(refused.status, 1);
+    assert.equal(kept, before);
+    assert.equal(added.status, 0, added.output);
+    assert.match(installed("code-audit"), /audit v1/);
+    assert.deepEqual(JSON.parse(readFileSync(join(repo, ".agents/skills.json"), "utf8")).sources[0].skills.sort(), ["code-audit", "planning"]);
+  });
+
+  test("--replace without names is a usage error", () => {
+    const result = cli(["install", "--replace"]);
+
+    assert.equal(result.status, 2);
+    assert.match(result.output, /--replace needs the names/);
+  });
+});

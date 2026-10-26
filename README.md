@@ -139,6 +139,27 @@ the repo. You can edit them: `check` does not flag them and `install` does not
 overwrite them; it only copies them when they are missing. `update <name>` copies
 them again from the machine, overwriting your edit.
 
+## Replacing the repo's own skills
+
+A folder in `.agents/skills/` that the lock does not know is one of the repo's own
+skills. If an incoming skill has its name, `install`, `update`, `init` and `add` do
+not overwrite it silently:
+
+- **In a terminal** they ask for each one: "The repo has its own `code-audit` skill.
+  Replace it with the incoming one?". The default is no, and a no stops without
+  changing anything.
+- **Without a terminal** they stop and name the clashes. `--replace code-audit,planning`
+  allows those:
+
+  ```sh
+  npx @ramon-sg/skills-manager add --catalog ramon-sg/agent-skills --select catalog:ramon-sg/agent-skills/code-audit --replace code-audit
+  ```
+
+Replacing deletes the own folder and writes the incoming skill. An [editable file](#editable-files)
+that the own folder already has, such as `project.md`, is kept as the repo's copy, so
+you can move what is specific to the repo there before replacing. `update --dry-run`
+marks each one with "replaces the repo's own folder".
+
 ## Catalogs
 
 A catalog is a repo of skills meant to be shared between projects. It lists them

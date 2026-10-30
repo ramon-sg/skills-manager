@@ -11,6 +11,8 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { repoCandidates } from "../src/pick.mjs";
+
 /** The CLI under test. */
 const CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "src", "cli.mjs");
 
@@ -253,6 +255,45 @@ describe("repo sources inside a marketplace plugin", () => {
     assert.equal(installed("alpha/SKILL.md"), "Use beta and other:beta.\n");
   });
 
+  test("a sibling with the same name in another plugin does not rewrite the reference", () => {
+    writeMarketplace(origin, [{ name: "demo", source: "./plugins/demo" }, { name: "other", source: "./plugins/other" }]);
+    write(join(origin, "plugins/other/skills/beta/SKILL.md"), "Other beta.\n");
+    commit(origin, "v2");
+    const otherBeta = { repo: `file://${origin}`, path: "plugins/other/skills/beta" };
+    setSources([alpha, otherBeta]);
+
+    const result = cli(["install"]);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(installed("alpha/SKILL.md"), "Use demo:beta and other:beta.\n");
+  });
+
+  test("with two plugins the sibling of the same plugin is still rewritten", () => {
+    writeMarketplace(origin, [{ name: "demo", source: "./plugins/demo" }, { name: "other", source: "./plugins/other" }]);
+    write(join(origin, "plugins/other/skills/gamma/SKILL.md"), "Gamma.\n");
+    commit(origin, "v2");
+    setSources([alpha, beta, { repo: `file://${origin}`, path: "plugins/other/skills/gamma" }]);
+
+    const result = cli(["install"]);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(installed("alpha/SKILL.md"), "Use beta and other:beta.\n");
+  });
+
+  test("an unreadable marketplace leaves the skill as it is and installs it", () => {
+    const broken = makeOrigin("broken");
+    write(join(broken, ".claude-plugin/marketplace.json"), "{not json");
+    write(join(broken, "skills/x/SKILL.md"), "Use demo:y.\n");
+    commit(broken, "v1");
+    setSources([{ repo: `file://${broken}`, path: "skills/x" }]);
+
+    const result = cli(["install"]);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.notEqual(lock().skills.x, undefined);
+    assert.equal(installed("x/SKILL.md"), "Use demo:y.\n");
+  });
+
   test("a repo without a marketplace is installed as before", () => {
     const plain = makeOrigin("plain");
     write(join(plain, "skills/x/SKILL.md"), "Use demo:y.\n");
@@ -368,6 +409,14 @@ describe("add --repo", () => {
     assert.deepEqual(candidates().find((candidate) => candidate.id === "demo").skills, ["beta"]);
     assert.equal(cli(["add", "--repo", url, "--select", "demo:beta"]).status, 0);
     assert.equal(candidates().find((candidate) => candidate.id === "demo"), undefined);
+  });
+
+  test("manifest entries are matched by resolved repo, and one that cannot be resolved is skipped", () => {
+    const manifest = { sources: [{ repo: "not a repo", path: "plugins/demo/skills/beta" }, { repo: url, path: "plugins/demo/skills/alpha" }] };
+
+    const found = repoCandidates(url, {}, manifest);
+
+    assert.deepEqual(found.find((candidate) => candidate.id === "demo").skills, ["beta"]);
   });
 
   test("a plugin from another repo is listed with its note and cannot be picked", () => {

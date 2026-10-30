@@ -168,6 +168,21 @@ export function readRepoSkills(tree, base = DEFAULT_BASE) {
  * pluginOfPath(tree, "plugins/demo/skills/alpha"); // "demo"
  */
 export function pluginOfPath(tree, skillPath) {
+  return pluginWithPath(tree, skillPath)?.name;
+}
+
+/**
+ * Finds the marketplace plugin that lists a skill path, with all its skills.
+ *
+ * @param tree - Repo checkout.
+ * @param skillPath - Skill path relative to the repo root.
+ * @returns `{ name, skills }`, or `undefined` without a marketplace or a plugin that has it.
+ * @throws {Error} If the marketplace file is not valid JSON.
+ * @example
+ * pluginWithPath(tree, "plugins/demo/skills/alpha");
+ * // { name: "demo", skills: [{ name: "alpha", path: "plugins/demo/skills/alpha" }] }
+ */
+export function pluginWithPath(tree, skillPath) {
   const { plugins } = readRepoSkills(tree);
-  return plugins?.find((plugin) => plugin.skills.some((skill) => skill.path === skillPath))?.name;
+  return plugins?.find((plugin) => plugin.skills.some((skill) => skill.path === skillPath));
 }

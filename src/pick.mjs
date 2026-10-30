@@ -33,6 +33,9 @@ import {
 /** Option that prints the candidates as JSON. */
 const CANDIDATES_FLAG = "--candidates";
 
+/** Message when a repo has nothing pickable that the manifest lacks. */
+const NOTHING_NEW = "Nothing new to add.";
+
 /** Option that picks without asking. */
 const SELECT_FLAG = "--select";
 
@@ -194,6 +197,21 @@ function describeSkill(tree, rel) {
 }
 
 /**
+ * Resolves a manifest `repo` value to the URL git fetches, so `owner/name` and
+ * its GitHub URL count as the same repo.
+ *
+ * @param repo - `repo` of a manifest source.
+ * @returns The URL, or `undefined` if it cannot be resolved.
+ */
+function resolvedRepo(repo) {
+  try {
+    return catalogRepo(repo);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Lists the skills of one repo, at HEAD or at the commit of `ref`: one
  * candidate per marketplace plugin, or one per skill folder of `path` if the
  * repo has no marketplace. Skills the manifest already takes from that repo do
@@ -210,8 +228,13 @@ export function repoCandidates(spec, { ref, path: base }, manifest) {
   const url = catalogRepo(spec);
   assertRef(ref, spec);
   const folder = base === undefined ? undefined : assertRelPath(base);
-  const taken = new Set((manifest?.sources ?? []).filter((entry) => entry.repo !== undefined).map(sourceKey));
-  const isNew = (skill) => !taken.has(sourceKey({ repo: spec, path: skill.path }));
+  const taken = new Set(
+    (manifest?.sources ?? []).filter((entry) => entry.repo !== undefined).flatMap((entry) => {
+      const resolved = resolvedRepo(entry.repo);
+      return resolved === undefined ? [] : [sourceKey({ repo: resolved, path: entry.path })];
+    }),
+  );
+  const isNew = (skill) => !taken.has(sourceKey({ repo: url, path: skill.path }));
   const pinned = ref === undefined ? {} : { ref };
   const temp = mkdtempSync(path.join(tmpdir(), "skills-repo-"));
   try {
@@ -282,10 +305,11 @@ function candidatesFor({ catalogs, repo }, manifest, home) {
  *
  * @param args - Subcommand arguments.
  * @param candidates - What `listCandidates` returns.
+ * @param options - What `askInteractively` takes: `{ empty? }`.
  * @returns What was picked.
  * @throws {Error} Usage error (exits with 2) if there is no TTY nor `--select`, or `--select` has no value.
  */
-async function choose(args, candidates) {
+async function choose(args, candidates, options) {
   const inline = args.find((arg) => arg.startsWith(`${SELECT_FLAG}=`));
   const index = args.indexOf(SELECT_FLAG);
   const value = inline?.slice(SELECT_FLAG.length + 1) ?? (index === -1 ? undefined : args[index + 1]);
@@ -298,7 +322,7 @@ async function choose(args, candidates) {
   if (!process.stdin.isTTY) {
     throw usageError(USAGE);
   }
-  return askInteractively(candidates);
+  return askInteractively(candidates, options);
 }
 
 /**
@@ -329,7 +353,7 @@ export async function commandPick(root, { init, args, home, install }) {
     console.log(JSON.stringify(candidates, null, 2));
     return;
   }
-  const sources = picksToSources(await choose(args, candidates), candidates);
+  const sources = picksToSources(await choose(args, candidates, from.repo === undefined ? {} : { empty: NOTHING_NEW }), candidates);
   const previous = existsSync(file) ? readFileSync(file, "utf8") : undefined;
   writeManifest(root, { ...manifest, sources: mergeSources(manifest?.sources ?? [], sources) });
   try {

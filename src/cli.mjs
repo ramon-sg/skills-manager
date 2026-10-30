@@ -34,7 +34,7 @@ import { fileURLToPath } from "node:url";
 import { CATALOG_PREFIX, catalogRepo, latestRelease, TEMPLATE_SUFFIX, withRequires } from "./catalog.mjs";
 import { resolveCatalogPlan } from "./catalog-plan.mjs";
 import { askReplace } from "./prompt.mjs";
-import { pluginOfPath } from "./repo-source.mjs";
+import { pluginWithPath } from "./repo-source.mjs";
 import { assertRelPath, assertRepo, assertSkillName, fetchSource, git, insideTree, latestCommit, walk } from "./git.mjs";
 import { diffLock, findCollisions, hashFiles, keptText, resolvePluginSource, rewritePluginRefs } from "./lib.mjs";
 import { sessionNotice } from "./notice.mjs";
@@ -91,20 +91,38 @@ function repoUrl(entry) {
 
 /**
  * Groups the `repo` sources of the manifest by resolved repo: each one's siblings,
- * itself included, are the skills it may reference without the plugin prefix.
+ * itself included, are the skills it may reference without the plugin prefix
+ * when they belong to its same plugin.
  *
  * @param manifest - Manifest read.
- * @returns Resolved repo URL to the set of skill names (basename of `path`).
+ * @returns Resolved repo URL to the list of `{ name, path }` (name is the basename of `path`).
  * @throws {Error} If a repo, path or name is not valid.
  */
 function repoSiblings(manifest) {
   const siblings = new Map();
   for (const entry of manifest.sources.filter((candidate) => candidate.repo !== undefined)) {
     const url = repoUrl(entry);
-    const name = assertSkillName(path.posix.basename(assertRelPath(entry.path)));
-    siblings.set(url, new Set([...(siblings.get(url) ?? []), name]));
+    const skillPath = assertRelPath(entry.path);
+    const name = assertSkillName(path.posix.basename(skillPath));
+    siblings.set(url, [...(siblings.get(url) ?? []), { name, path: skillPath }]);
   }
   return siblings;
+}
+
+/**
+ * Finds the marketplace plugin of a downloaded origin that lists a `repo` source's path.
+ *
+ * @param tree - Origin checkout.
+ * @param skillPath - Skill path relative to the origin root.
+ * @returns `{ name, skills }`, or `undefined` if no plugin lists it.
+ */
+function repoPluginOf(tree, skillPath) {
+  try {
+    return pluginWithPath(tree, skillPath);
+  } catch {
+    // WHY: installing never needed the marketplace before; a broken one upstream means "not in a plugin", nothing is rewritten.
+    return undefined;
+  }
 }
 
 /**
@@ -213,7 +231,7 @@ function versionOf(dir) {
  * Builds the files of each skill of a downloaded origin: filters the requested
  * ones, rewrites references between skills of the same plugin and adds the license.
  * A `repo` source whose path a marketplace plugin of the origin lists is rewritten
- * against its manifest siblings.
+ * against its manifest siblings of that same plugin.
  *
  * @param tree - Origin checkout.
  * @param plan - Source plan: `entry`, `root` (plugin root or skill path), `plugin` and,
@@ -229,8 +247,12 @@ function collectSkills(tree, plan) {
     ? readdirSync(insideTree(tree, skillsDir)).filter((name) => existsSync(path.join(tree, skillsDir, name, SKILL_FILE)))
     : [path.posix.basename(plan.root)];
   const wanted = names.filter((name) => plan.entry.skills === undefined || plan.entry.skills.includes(name)).map(assertSkillName);
-  const plugin = isPlugin ? plan.plugin : pluginOfPath(tree, plan.root);
-  const installed = isPlugin ? new Set(wanted) : plan.siblings;
+  const repoPlugin = isPlugin ? undefined : repoPluginOf(tree, plan.root);
+  const plugin = isPlugin ? plan.plugin : repoPlugin?.name;
+  const ownPaths = new Set((repoPlugin?.skills ?? []).map((skill) => skill.path));
+  const installed = isPlugin
+    ? new Set(wanted)
+    : new Set(plan.siblings.filter((sibling) => ownPaths.has(sibling.path)).map((sibling) => sibling.name));
   const license = [path.join(pluginRoot, LICENSE), path.join(tree, LICENSE)].find(isRegularFile);
   const version = versionOf(pluginRoot);
   return wanted.map((name) => {
@@ -316,7 +338,7 @@ function planSource(entry, context) {
   // WHY: like a plugin's `skills` list, the repo's sources decide which references lose their prefix.
   const listChanged = url === undefined
     ? entry.skills !== undefined && !sameSet(entry.skills, names)
-    : !sameSet(siblings.siblings, lockedSiblings(lock, url));
+    : !sameSet(siblings.siblings.map((sibling) => sibling.name), lockedSiblings(lock, url));
   if (!listChanged && names.every((name) => installedHash(paths, name) !== undefined)) {
     return { key, entry, names };
   }

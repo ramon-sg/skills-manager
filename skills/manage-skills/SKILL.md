@@ -60,6 +60,24 @@ A catalog skill may have editable files (the `editable` list in the lock, for
 example `project.md`): those belong to the repo and can be changed by hand;
 every other file of the skill cannot.
 
+## From a GitHub repo
+
+To take skills from a GitHub repo without its plugin or marketplace on the machine:
+
+1. `npx @ramon-sg/skills-manager add --repo <owner/name> --candidates` (or `init`
+   without a manifest) prints JSON: `{id, kind: "repo-plugin"|"repo-skill", repo,
+   skills, ...}`. A plugin with `note: "plugin in another repo"` cannot be picked.
+2. Show them in the chat and ask which ones.
+3. `npx @ramon-sg/skills-manager add --repo <owner/name> --select <ids>`. Grammar:
+   `plugin` (all its skills), `plugin:skill1+skill2` (some) or `<skill>`; separated
+   by commas.
+
+`--ref <tag-or-branch>` pins a version. `--path <dir>` (default `skills`) is only
+used when the repo has no `.claude-plugin/marketplace.json`. `--repo` takes one repo
+and does not mix with `--catalog`.
+
+Each skill is its own manifest entry, so `update <name>` moves only that one.
+
 ## Before applying and after
 
 1. Show the change: `git diff --stat .agents/skills` and the diff of every

@@ -385,6 +385,14 @@ describe("add --repo", () => {
     assert.equal(installed("y/SKILL.md"), "---\nname: y\ndescription: Does y.\n---\nY.\n");
   });
 
+  test("with a marketplace --path lists that folder instead of the plugins", () => {
+    const found = candidates(["--path", "plugins/demo/skills"]);
+    assert.deepEqual(found.map((candidate) => [candidate.kind, candidate.path]), [
+      ["repo-skill", "plugins/demo/skills/alpha"],
+      ["repo-skill", "plugins/demo/skills/beta"],
+    ]);
+  });
+
   test("--ref pins every added entry to that ref", () => {
     git(origin, ["tag", "v1.0.0"]);
     write(join(origin, "plugins/demo/skills/gamma/SKILL.md"), "Gamma.\n");

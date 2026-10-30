@@ -72,8 +72,9 @@ To take skills from a GitHub repo without its plugin or marketplace on the machi
    `plugin` (all its skills), `plugin:skill1+skill2` (some) or `<skill>`; separated
    by commas.
 
-`--ref <tag-or-branch>` pins a version. `--path <dir>` (default `skills`) is only
-used when the repo has no `.claude-plugin/marketplace.json`. `--repo` takes one repo
+`--ref <tag-or-branch>` pins a version. `--path <dir>` lists the skill folders of
+`<dir>` instead, even when the repo has a `.claude-plugin/marketplace.json`
+(without one, the default is `skills`). `--repo` takes one repo
 and does not mix with `--catalog`.
 
 Each skill is its own manifest entry, so `update <name>` moves only that one.

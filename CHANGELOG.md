@@ -11,7 +11,7 @@ All notable changes to this project are documented here. The format follows
 - `init` and `add` take `--repo <owner/name | URL>`, with `--ref` and `--path`: they
   list and install skills from a GitHub repo without the plugin or marketplace on the
   machine. With a `.claude-plugin/marketplace.json` they offer its plugins; without
-  one, the folders under `--path` (default `skills`). `--select` takes `<plugin>`,
+  one, or with `--path`, the folders under `--path` (default `skills`). `--select` takes `<plugin>`,
   `<plugin>:a+b` or `<skill>`. Each skill is its own `repo` entry, so `update <name>`
   moves only that one.
 - A `repo` entry inside a marketplace plugin rewrites `<plugin>:<skill>` references

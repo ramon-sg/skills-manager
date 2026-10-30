@@ -113,6 +113,24 @@ describe("readRepoSkills", () => {
     }
   });
 
+  test("an explicit base wins over the marketplace", () => {
+    marketplace([{ name: "demo", source: "./plugins/demo" }]);
+    write("plugins/demo/skills/alpha/SKILL.md");
+    write("extra/beta/SKILL.md");
+    assert.deepEqual(readRepoSkills(tree, "extra"), { skills: [{ name: "beta", path: "extra/beta" }] });
+    assert.equal(readRepoSkills(tree).plugins[0].name, "demo");
+  });
+
+  test("a repeated plugin name keeps only the first plugin", () => {
+    marketplace([
+      { name: "demo", source: "./one" },
+      { name: "demo", source: "./two" },
+    ]);
+    write("one/skills/alpha/SKILL.md");
+    write("two/skills/beta/SKILL.md");
+    assert.deepEqual(readRepoSkills(tree), { plugins: [{ name: "demo", skills: [{ name: "alpha", path: "one/skills/alpha" }] }] });
+  });
+
   test("a marketplace that is not JSON fails naming the file", () => {
     write(MARKETPLACE_FILE, "{ nope");
     assert.throws(() => readRepoSkills(tree), /marketplace\.json/);

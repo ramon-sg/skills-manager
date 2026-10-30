@@ -110,7 +110,7 @@ Without a terminal (for example from an agent session), `init` and `add` accept
 `--candidates` (prints what is on the machine as JSON) and `--select <ids>` (picks
 without asking). Ids are `plugin@marketplace`, `plugin@marketplace:skill1+skill2`, or
 the name of a local skill, separated by commas. With `--repo` they follow
-[From a GitHub repo](#from-a-github-repo).
+[From a git repo](#from-a-git-repo).
 
 ## How to update
 
@@ -133,9 +133,10 @@ bit). To change something, use the commands. If the difference was a hand edit,
   the edit and moves the lock to the latest commit. `update --dry-run` warns
   `<name>: edited by hand, will be overwritten` for every skill that would lose an edit.
 
-## From a GitHub repo
+## From a git repo
 
-`init` and `add` can take skills straight from a GitHub repo, without the plugin or
+`init` and `add` can take skills straight from a GitHub repo (or any `https://` or
+`file://` git URL), without the plugin or
 its marketplace on your machine:
 
 ```sh
@@ -150,9 +151,10 @@ and `--path` need `--repo`, and `--repo` does not mix with `--catalog`.
 - **With `.claude-plugin/marketplace.json`**, `--candidates` lists its plugins
   (`kind: "repo-plugin"`) with their skills: the plugin's `skills` list, or
   `<plugin root>/skills/*`. A plugin whose source is another repo shows
-  `note: "plugin in another repo"` and cannot be picked. `--path` is ignored.
-- **Without it**, every folder with a `SKILL.md` under `--path` is a skill
-  (`kind: "repo-skill"`).
+  `note: "plugin in another repo"` and cannot be picked.
+- **Without it, or with `--path`**, every folder with a `SKILL.md` under `--path`
+  (default `skills`) is a skill (`kind: "repo-skill"`). A `--path` you give wins
+  over the marketplace.
 
 `--select` takes `<plugin>` (all its skills), `<plugin>:a+b` (some) or `<skill>`,
 separated by commas. In a terminal you get the same checkbox list as for plugins.

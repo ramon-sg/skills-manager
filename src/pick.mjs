@@ -213,8 +213,8 @@ function resolvedRepo(repo) {
 
 /**
  * Lists the skills of one repo, at HEAD or at the commit of `ref`: one
- * candidate per marketplace plugin, or one per skill folder of `path` if the
- * repo has no marketplace. Skills the manifest already takes from that repo do
+ * candidate per skill folder of `path` when given, else one per marketplace
+ * plugin, else one per skill folder of `skills`. Skills the manifest already takes from that repo do
  * not appear, and a plugin left without skills (and without a note) neither.
  *
  * @param spec - `--repo` value: `owner/name` or an `https://` / `file://` URL.

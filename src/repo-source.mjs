@@ -4,7 +4,8 @@
  * it is a list of plugins, each with its own skills (from the plugin's `skills`
  * list, or its `skills/` folder); without one it is a plain folder of skills
  * (`<base>/*`). Folders with an invalid name, symlinks and anything that
- * escapes the tree are skipped silently.
+ * escapes the tree are skipped silently. An explicit folder wins over the
+ * marketplace.
  */
 import { existsSync, lstatSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -119,7 +120,8 @@ function pluginSkills(tree, plugin) {
  * Reads the marketplace of a repo, if it has one.
  *
  * @param tree - Repo checkout.
- * @returns The `plugins` list, or `undefined` without a marketplace.
+ * @returns The `plugins` list (the first plugin of a repeated name only), or
+ * `undefined` without a marketplace.
  * @throws {Error} If the marketplace file is not valid JSON.
  */
 function readMarketplace(tree) {
@@ -133,15 +135,19 @@ function readMarketplace(tree) {
   } catch (error) {
     throw new Error(`${MARKETPLACE_FILE} is not valid JSON: ${error.message}`);
   }
-  return Array.isArray(data?.plugins) ? data.plugins.filter((plugin) => typeof plugin?.name === "string") : [];
+  if (!Array.isArray(data?.plugins)) {
+    return [];
+  }
+  const named = data.plugins.filter((plugin) => typeof plugin?.name === "string");
+  return named.filter((plugin, index) => named.findIndex((other) => other.name === plugin.name) === index);
 }
 
 /**
- * Lists the skills of a downloaded repo: per plugin when it has a marketplace,
- * otherwise the folders of `base`.
+ * Lists the skills of a downloaded repo: the folders of `base` when given, else
+ * per plugin when it has a marketplace, else the folders of `skills`.
  *
  * @param tree - Repo checkout.
- * @param base - Folder of skills when there is no marketplace.
+ * @param base - Folder of skills; given, it wins over the marketplace.
  * @returns `{ plugins }` with a marketplace, `{ skills }` without one. Skill
  * paths are POSIX, relative to the repo root.
  * @throws {Error} If the marketplace file is not valid JSON.
@@ -149,10 +155,10 @@ function readMarketplace(tree) {
  * readRepoSkills(tree);
  * // { skills: [{ name: "alpha", path: "skills/alpha" }] }
  */
-export function readRepoSkills(tree, base = DEFAULT_BASE) {
-  const plugins = readMarketplace(tree);
+export function readRepoSkills(tree, base) {
+  const plugins = base === undefined ? readMarketplace(tree) : undefined;
   if (plugins === undefined) {
-    return { skills: tidy(skillsIn(tree, base)) };
+    return { skills: tidy(skillsIn(tree, base ?? DEFAULT_BASE)) };
   }
   return { plugins: plugins.map((plugin) => pluginSkills(tree, plugin)) };
 }

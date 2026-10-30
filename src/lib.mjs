@@ -44,6 +44,12 @@ const SELECT_SKILL_SEPARATOR = "+";
 /** Separates the plugin name from its marketplace in an id (`superpowers@claude-plugins-official`). */
 const PLUGIN_ID_SEPARATOR = "@";
 
+/** Kind of a candidate that is a marketplace plugin of a repo given with `--repo`. */
+export const REPO_PLUGIN = "repo-plugin";
+
+/** Kind of a candidate that is a skill folder of a repo without marketplace. */
+export const REPO_SKILL = "repo-skill";
+
 /** Keys allowed in the manifest's `paths`. */
 const PATH_KEYS = ["lock", "skillsDir", "settings"];
 
@@ -349,8 +355,9 @@ function shortName(id) {
 
 /**
  * Builds the options of the interactive menu: one short line per pickable
- * candidate (name and how many skills it brings, all in the label so it shows
- * on every row and not only on the cursor's) and, apart, those that cannot be
+ * candidate (name and how many skills it brings, or the description of a repo
+ * skill, all in the label so it shows on every row and not only on the
+ * cursor's) and, apart, those that cannot be
  * picked, to show them on a single line at the bottom. If two plugins share a
  * name in different marketplaces, the marketplace goes in parentheses.
  *
@@ -370,6 +377,10 @@ export function menuOptions(candidates) {
     const label = repeated.has(name) ? `${name} (${candidate.id.split(PLUGIN_ID_SEPARATOR)[1]})` : name;
     if (candidate.note !== undefined) {
       hidden.push(`${label} (${candidate.note})`);
+      continue;
+    }
+    if (candidate.kind === REPO_SKILL) {
+      options.push({ value: candidate.id, label: candidate.description ? `${label} · ${candidate.description}` : label });
       continue;
     }
     const count = candidate.skills.length;
@@ -419,6 +430,9 @@ export function pickSummary(picks, candidates) {
         return `${candidate.name}${requires} · ${candidate.catalog}`;
       }
       const name = shortName(pick.id);
+      if (candidate?.kind === REPO_SKILL) {
+        return `${name} · ${candidate.repo}`;
+      }
       if (candidate?.kind === "local") {
         return `${name} (yours)`;
       }
@@ -431,12 +445,28 @@ export function pickSummary(picks, candidates) {
 }
 
 /**
+ * Builds the manifest entry of one skill of a repo candidate.
+ *
+ * @param candidate - A `repo-plugin` or `repo-skill` candidate.
+ * @param skillPath - Path of the skill in the repo.
+ * @returns `{ repo, path, ref? }`.
+ * @example
+ * repoSource({ repo: "o/r", ref: "v1" }, "skills/x");
+ * // { repo: "o/r", path: "skills/x", ref: "v1" }
+ */
+function repoSource(candidate, skillPath) {
+  const source = { repo: candidate.repo, path: skillPath };
+  return candidate.ref === undefined ? source : { ...source, ref: candidate.ref };
+}
+
+/**
  * Translates the picks into manifest sources, validating against the candidates.
  *
  * @param picks - Picks `{ id, skills? }`; if one repeats, the last one wins.
- * @param candidates - What `listCandidates` returns, or catalog candidates.
- * @returns Sources `{ plugin, skills? }`, `{ local }` or `{ catalog, ref?, skills }`
- * (one per catalog, with every skill picked from it).
+ * @param candidates - What `listCandidates` returns, or catalog or repo candidates.
+ * @returns Sources `{ plugin, skills? }`, `{ local }`, `{ catalog, ref?, skills }`
+ * (one per catalog, with every skill picked from it) or `{ repo, path, ref? }`
+ * (one per skill of a repo plugin or repo folder).
  * @throws {Error} If nothing was picked, or something is missing, has a note or asks for a skill it does not provide.
  * @example
  * picksToSources([{ id: "x" }], [{ id: "x", kind: "local", skills: ["x"] }]);
@@ -467,6 +497,9 @@ export function picksToSources(picks, candidates) {
       } else {
         existing.skills.push(candidate.name);
       }
+    } else if (candidate.kind === REPO_PLUGIN || candidate.kind === REPO_SKILL) {
+      const names = pick.skills?.length > 0 ? candidate.skills.filter((skill) => pick.skills.includes(skill)) : candidate.skills;
+      sources.push(...names.map((skill) => repoSource(candidate, candidate.kind === REPO_SKILL ? candidate.path : candidate.paths[skill])));
     } else if (candidate.kind === "local") {
       sources.push({ local: candidate.id });
     } else {

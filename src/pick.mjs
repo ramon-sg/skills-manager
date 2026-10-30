@@ -1,8 +1,9 @@
 /**
  * @file `skills-manager init` and `skills-manager add`: read what is installed on the
  * machine (plugins from `~/.claude/plugins/installed_plugins.json` and skills
- * from `~/.claude/skills`) or, with `--catalog`, the skills of one or more
- * catalog repos; let the user pick (with the checkbox menu of `prompt.mjs` if
+ * from `~/.claude/skills`), with `--catalog` the skills of one or more
+ * catalog repos or, with `--repo`, the skills of one repo (per plugin of its
+ * marketplace, or the folders of `--path`); let the user pick (with the checkbox menu of `prompt.mjs` if
  * there is a TTY, or with `--candidates` / `--select`), add the pick to the
  * manifest and run `install`. If `install` fails, the manifest goes back to how it was.
  */
@@ -11,9 +12,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { CATALOG_PREFIX, catalogRepo, latestRelease, readCatalog, skillDescription } from "./catalog.mjs";
-import { fetchSource, insideTree } from "./git.mjs";
-import { listCandidates, mergeSources, parseSelect, picksToSources } from "./lib.mjs";
+import { assertRef, CATALOG_PREFIX, catalogRepo, latestRelease, readCatalog, skillDescription } from "./catalog.mjs";
+import { assertRelPath, fetchSource, insideTree } from "./git.mjs";
+import { listCandidates, mergeSources, parseSelect, picksToSources, REPO_PLUGIN, REPO_SKILL } from "./lib.mjs";
+import { readRepoSkills } from "./repo-source.mjs";
 import { askInteractively } from "./prompt.mjs";
 import {
   isRegularFile,
@@ -24,6 +26,7 @@ import {
   readManifest,
   resolvePaths,
   SKILL_FILE,
+  sourceKey,
   writeManifest,
 } from "./state.mjs";
 
@@ -36,6 +39,15 @@ const SELECT_FLAG = "--select";
 /** Option, repeatable, that offers the skills of a catalog repo instead of the machine's. */
 const CATALOG_FLAG = "--catalog";
 
+/** Option that offers the skills of one repo, with or without a marketplace. */
+const REPO_FLAG = "--repo";
+
+/** Option, only with `--repo`, that reads the repo at a branch or tag instead of HEAD. */
+const REF_FLAG = "--ref";
+
+/** Option, only with `--repo`, that names the skills folder of a repo without marketplace. */
+const PATH_FLAG = "--path";
+
 /** Separates a catalog from the branch or tag to follow in `--catalog owner/repo#v1.2.0`. */
 const CATALOG_REF_SEPARATOR = "#";
 
@@ -43,7 +55,7 @@ const CATALOG_REF_SEPARATOR = "#";
 const USAGE_EXIT = 2;
 
 /** How to use it without a TTY. */
-const USAGE = `Without an interactive terminal use ${CANDIDATES_FLAG} to see what is available, or ${SELECT_FLAG} plugin@marketplace,local-skill (plugin@marketplace:skill1+skill2 for individual skills; ${CATALOG_PREFIX}<catalog>/<skill> with ${CATALOG_FLAG}).`;
+const USAGE = `Without an interactive terminal use ${CANDIDATES_FLAG} to see what is available, or ${SELECT_FLAG} plugin@marketplace,local-skill (plugin@marketplace:skill1+skill2 for individual skills; ${CATALOG_PREFIX}<catalog>/<skill> with ${CATALOG_FLAG}; ${REPO_FLAG} <owner/name> ${SELECT_FLAG} <plugin>[:a+b] | <skill>, with ${REF_FLAG} <ref> and ${PATH_FLAG} <dir>).`;
 
 /** Name of the skill bundled with the package, which `init` copies. */
 const BUNDLED_SKILL = "manage-skills";
@@ -170,6 +182,102 @@ export function catalogCandidates(specs, manifest) {
 }
 
 /**
+ * Reads the description of a skill folder of a downloaded repo.
+ *
+ * @param tree - Repo checkout.
+ * @param rel - Skill folder relative to the repo root, already validated.
+ * @returns The `description` of its `SKILL.md`, or `""`.
+ */
+function describeSkill(tree, rel) {
+  const file = path.join(insideTree(tree, rel), SKILL_FILE);
+  return isRegularFile(file) ? skillDescription(readFileSync(file, "utf8")) : "";
+}
+
+/**
+ * Lists the skills of one repo, at HEAD or at the commit of `ref`: one
+ * candidate per marketplace plugin, or one per skill folder of `path` if the
+ * repo has no marketplace. Skills the manifest already takes from that repo do
+ * not appear, and a plugin left without skills (and without a note) neither.
+ *
+ * @param spec - `--repo` value: `owner/name` or an `https://` / `file://` URL.
+ * @param options - `{ ref?, path? }`: branch or tag, and skills folder (default `skills`).
+ * @param manifest - Current manifest, or `undefined`.
+ * @returns Candidates `{ id, kind: "repo-plugin", repo, ref?, skills, paths, note? }`
+ * or `{ id, kind: "repo-skill", repo, ref?, skills, path, description }`.
+ * @throws {Error} If the repo, ref or path are not valid, or the repo cannot be fetched or read.
+ */
+export function repoCandidates(spec, { ref, path: base }, manifest) {
+  const url = catalogRepo(spec);
+  assertRef(ref, spec);
+  const folder = base === undefined ? undefined : assertRelPath(base);
+  const taken = new Set((manifest?.sources ?? []).filter((entry) => entry.repo !== undefined).map(sourceKey));
+  const isNew = (skill) => !taken.has(sourceKey({ repo: spec, path: skill.path }));
+  const pinned = ref === undefined ? {} : { ref };
+  const temp = mkdtempSync(path.join(tmpdir(), "skills-repo-"));
+  try {
+    fetchSource({ repo: url, commit: ref === undefined ? undefined : latestRelease(url, ref).commit }, temp);
+    const found = readRepoSkills(temp, folder);
+    if (found.plugins === undefined) {
+      return found.skills.filter(isNew).map((skill) => ({ id: skill.name, kind: REPO_SKILL, repo: spec, ...pinned, skills: [skill.name], path: skill.path, description: describeSkill(temp, skill.path) }));
+    }
+    return found.plugins.flatMap((plugin) => {
+      const skills = plugin.skills.filter(isNew);
+      if (skills.length === 0 && plugin.note === undefined) {
+        return [];
+      }
+      const candidate = { id: plugin.name, kind: REPO_PLUGIN, repo: spec, ...pinned, skills: skills.map((skill) => skill.name), paths: Object.fromEntries(skills.map((skill) => [skill.name, skill.path])) };
+      return [plugin.note === undefined ? candidate : { ...candidate, note: plugin.note }];
+    });
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Reads `--repo`, `--ref` and `--path`, which go together and apart from `--catalog`.
+ *
+ * @param args - Subcommand arguments.
+ * @param catalogs - `--catalog` values.
+ * @returns `{ spec, ref?, path? }`, or `undefined` without `--repo`.
+ * @throws {Error} Usage error if `--repo` repeats or comes with `--catalog`, or
+ * `--ref` / `--path` repeat or come without `--repo`.
+ */
+function repoOption(args, catalogs) {
+  const [repos, refs, paths] = [REPO_FLAG, REF_FLAG, PATH_FLAG].map((flag) => flagValues(args, flag));
+  for (const [flag, values] of [[REPO_FLAG, repos], [REF_FLAG, refs], [PATH_FLAG, paths]]) {
+    if (values.length > 1) {
+      throw usageError(`${flag} goes only once.`);
+    }
+  }
+  if (repos.length === 0) {
+    if (refs.length > 0 || paths.length > 0) {
+      throw usageError(`${REF_FLAG} and ${PATH_FLAG} need ${REPO_FLAG}.`);
+    }
+    return undefined;
+  }
+  if (catalogs.length > 0) {
+    throw usageError(`${REPO_FLAG} and ${CATALOG_FLAG} cannot go together.`);
+  }
+  return { spec: repos[0], ref: refs[0], path: paths[0] };
+}
+
+/**
+ * Lists the candidates from `--repo`, else from `--catalog`, else from the machine.
+ *
+ * @param from - `{ catalogs, repo }`: `--catalog` values and what `repoOption` read.
+ * @param manifest - Current manifest, or `undefined`.
+ * @param home - Machine home.
+ * @returns The candidates.
+ * @throws {Error} If a source cannot be read.
+ */
+function candidatesFor({ catalogs, repo }, manifest, home) {
+  if (repo !== undefined) {
+    return repoCandidates(repo.spec, repo, manifest);
+  }
+  return catalogs.length > 0 ? catalogCandidates(catalogs, manifest) : listCandidates(readMachine(home), manifest);
+}
+
+/**
  * Decides what was picked: through `--select`, or by asking if there is a TTY.
  *
  * @param args - Subcommand arguments.
@@ -195,15 +303,18 @@ async function choose(args, candidates) {
 
 /**
  * Runs `init` or `add`: picks from what is installed (or from the `--catalog`
- * repos), adds it to the manifest and installs.
+ * repos, or the `--repo` repo), adds it to the manifest and installs.
  *
  * @param root - Repo root.
  * @param opts - `{ init, args, home, install }`; `install` runs the installation (it may
  * ask before replacing an own skill, so it is awaited).
- * @throws {Error} If `init` finds a manifest, `add` does not find one, the
+ * @throws {Error} Usage error (exits with 2) on a bad combination of options; if
+ * `init` finds a manifest, `add` does not find one, the
  * pick is not valid or the installation fails (with the manifest already restored).
  */
 export async function commandPick(root, { init, args, home, install }) {
+  const catalogs = flagValues(args, CATALOG_FLAG);
+  const from = { catalogs, repo: repoOption(args, catalogs) };
   const file = resolvePaths(root).manifest;
   const shown = path.relative(root, file);
   if (init && existsSync(file)) {
@@ -213,8 +324,7 @@ export async function commandPick(root, { init, args, home, install }) {
   if (!init && manifest === undefined) {
     throw new Error(`No ${shown} found; start with skills-manager init`);
   }
-  const catalogs = flagValues(args, CATALOG_FLAG);
-  const candidates = catalogs.length > 0 ? catalogCandidates(catalogs, manifest) : listCandidates(readMachine(home), manifest);
+  const candidates = candidatesFor(from, manifest, home);
   if (args.includes(CANDIDATES_FLAG)) {
     console.log(JSON.stringify(candidates, null, 2));
     return;

@@ -8,7 +8,7 @@
  */
 import { confirm, groupMultiselect, intro, isCancel, multiselect, note, outro, select } from "@clack/prompts";
 
-import { catalogMenu, keptText, menuOptions, pickSummary } from "./lib.mjs";
+import { catalogMenu, keptText, menuOptions, pickSummary, REPO_PLUGIN } from "./lib.mjs";
 
 /** Answer "take all the plugin's skills". */
 const ALL_SKILLS = "all";
@@ -128,7 +128,7 @@ async function askCatalog(candidates) {
 /**
  * Shows the checkbox menu and returns what was picked.
  *
- * @param candidates - What `listCandidates` returns, or catalog candidates.
+ * @param candidates - What `listCandidates` returns, or catalog or repo candidates.
  * @returns Picks `{ id, skills? }`.
  * @throws {Error} If nothing is pickable, or it is cancelled or not confirmed.
  */
@@ -156,7 +156,7 @@ export async function askInteractively(candidates) {
   const picks = [];
   for (const id of ids) {
     const candidate = candidates.find((option) => option.id === id);
-    picks.push(candidate?.kind === "plugin" ? await askSkills(candidate) : { id });
+    picks.push(candidate?.kind === "plugin" || candidate?.kind === REPO_PLUGIN ? await askSkills(candidate) : { id });
   }
   return confirmPicks(picks, candidates);
 }

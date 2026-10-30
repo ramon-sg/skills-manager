@@ -355,6 +355,41 @@ describe("picksToSources", () => {
   test("an empty pick is an error", () => {
     assert.throws(() => picksToSources([], candidates), /nothing/);
   });
+
+  test("repo picks become one repo source per skill", () => {
+    const repoCandidates = [
+      { id: "demo", kind: "repo-plugin", repo: "o/r", ref: "v1", skills: ["alpha", "beta"], paths: { alpha: "plugins/demo/skills/alpha", beta: "plugins/demo/skills/beta" } },
+      { id: "x", kind: "repo-skill", repo: "o/r", skills: ["x"], path: "skills/x", description: "Does x." },
+    ];
+    assert.deepEqual(picksToSources([{ id: "demo", skills: ["beta"] }, { id: "x" }], repoCandidates), [
+      { repo: "o/r", path: "plugins/demo/skills/beta", ref: "v1" },
+      { repo: "o/r", path: "skills/x" },
+    ]);
+    assert.deepEqual(picksToSources([{ id: "demo" }], repoCandidates), [
+      { repo: "o/r", path: "plugins/demo/skills/alpha", ref: "v1" },
+      { repo: "o/r", path: "plugins/demo/skills/beta", ref: "v1" },
+    ]);
+    assert.throws(() => picksToSources([{ id: "demo", skills: ["zeta"] }], repoCandidates), /does not provide zeta/);
+  });
+});
+
+describe("repo candidates in the menu", () => {
+  const candidates = [
+    { id: "demo", kind: "repo-plugin", repo: "o/r", skills: ["alpha", "beta"], paths: {} },
+    { id: "x", kind: "repo-skill", repo: "o/r", skills: ["x"], path: "skills/x", description: "Does x." },
+  ];
+
+  test("a repo plugin shows its skill count and a repo skill its description", () => {
+    assert.deepEqual(menuOptions(candidates).options, [
+      { value: "demo", label: "demo · 2 skills" },
+      { value: "x", label: "x · Does x." },
+    ]);
+  });
+
+  test("a repo plugin is summarized like a plugin and a repo skill with its repo", () => {
+    assert.equal(pickSummary([{ id: "demo" }, { id: "x" }], candidates), "demo (all, 2)\nx · o/r");
+    assert.equal(pickSummary([{ id: "demo", skills: ["beta"] }], candidates), "demo: beta");
+  });
 });
 
 describe("resolvePaths", () => {

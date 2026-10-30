@@ -266,3 +266,140 @@ describe("repo sources inside a marketplace plugin", () => {
     assert.equal(installed("x/SKILL.md"), "Use demo:y.\n");
   });
 });
+
+describe("add --repo", () => {
+  /** Origin with a marketplace: a `demo` plugin with `alpha` and `beta`, and a plugin in another repo. */
+  let origin;
+
+  /** `--repo` value of the origin. */
+  let url;
+
+  /**
+   * Reads the manifest sources of the temporary repo.
+   *
+   * @returns The `sources` list.
+   */
+  function sources() {
+    return JSON.parse(readFileSync(join(repo, ".agents/skills.json"), "utf8")).sources;
+  }
+
+  /**
+   * Runs `add --repo <url> --candidates` and parses its JSON.
+   *
+   * @param extra - More arguments.
+   * @returns The candidates.
+   */
+  function candidates(extra = []) {
+    const result = cli(["add", "--repo", url, "--candidates", ...extra]);
+    assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(result.stdout);
+  }
+
+  beforeEach(() => {
+    origin = makeOrigin();
+    writeMarketplace(origin, [
+      { name: "demo", source: "./plugins/demo" },
+      { name: "elsewhere", source: { source: "github", repo: "o/r" } },
+    ]);
+    write(join(origin, "plugins/demo/skills/alpha/SKILL.md"), "---\nname: alpha\ndescription: Does alpha.\n---\nUse demo:beta.\n");
+    write(join(origin, "plugins/demo/skills/beta/SKILL.md"), "---\nname: beta\ndescription: Does beta.\n---\nBeta.\n");
+    commit(origin, "v1");
+    url = `file://${origin}`;
+    setSources([]);
+  });
+
+  test("--candidates lists each marketplace plugin with its skills, without the marketplace on the machine", () => {
+    const listed = candidates();
+
+    const demo = listed.find((candidate) => candidate.id === "demo");
+    assert.equal(demo.kind, "repo-plugin");
+    assert.equal(demo.repo, url);
+    assert.deepEqual(demo.skills, ["alpha", "beta"]);
+    assert.deepEqual(demo.paths, { alpha: "plugins/demo/skills/alpha", beta: "plugins/demo/skills/beta" });
+  });
+
+  test("--select plugin:skill installs only that skill with commit and hash in the lock", () => {
+    const result = cli(["add", "--repo", url, "--select", "demo:alpha"]);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(sources(), [{ repo: url, path: "plugins/demo/skills/alpha" }]);
+    const { alpha, beta } = lock().skills;
+    assert.match(alpha.commit, /^[0-9a-f]{40}$/);
+    assert.match(alpha.hash, /^sha256-/);
+    assert.equal(beta, undefined);
+  });
+
+  test("without a marketplace --candidates lists base/* and --path changes the folder", () => {
+    const plain = makeOrigin("plain");
+    write(join(plain, "skills/x/SKILL.md"), "---\nname: x\ndescription: Does x.\n---\nX.\n");
+    write(join(plain, "other/y/SKILL.md"), "---\nname: y\ndescription: Does y.\n---\nY.\n");
+    commit(plain, "v1");
+    url = `file://${plain}`;
+
+    assert.deepEqual(candidates(), [{ id: "x", kind: "repo-skill", repo: url, skills: ["x"], path: "skills/x", description: "Does x." }]);
+    assert.deepEqual(candidates(["--path", "other"]).map((candidate) => candidate.path), ["other/y"]);
+    const result = cli(["add", "--repo", url, "--path", "other", "--select", "y"]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(sources(), [{ repo: url, path: "other/y" }]);
+    assert.equal(installed("y/SKILL.md"), "---\nname: y\ndescription: Does y.\n---\nY.\n");
+  });
+
+  test("--ref pins every added entry to that ref", () => {
+    git(origin, ["tag", "v1.0.0"]);
+    write(join(origin, "plugins/demo/skills/gamma/SKILL.md"), "Gamma.\n");
+    commit(origin, "v2");
+
+    assert.deepEqual(candidates(["--ref", "v1.0.0"]).find((candidate) => candidate.id === "demo").skills, ["alpha", "beta"]);
+    const result = cli(["add", "--repo", url, "--ref", "v1.0.0", "--select", "demo"]);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(sources(), [
+      { repo: url, path: "plugins/demo/skills/alpha", ref: "v1.0.0" },
+      { repo: url, path: "plugins/demo/skills/beta", ref: "v1.0.0" },
+    ]);
+    const tagged = git(origin, ["rev-parse", "v1.0.0^{commit}"]);
+    assert.equal(lock().skills.alpha.commit, tagged);
+    assert.equal(lock().skills.beta.commit, tagged);
+  });
+
+  test("skills already in the manifest are not candidates again", () => {
+    assert.equal(cli(["add", "--repo", url, "--select", "demo:alpha"]).status, 0);
+
+    assert.deepEqual(candidates().find((candidate) => candidate.id === "demo").skills, ["beta"]);
+    assert.equal(cli(["add", "--repo", url, "--select", "demo:beta"]).status, 0);
+    assert.equal(candidates().find((candidate) => candidate.id === "demo"), undefined);
+  });
+
+  test("a plugin from another repo is listed with its note and cannot be picked", () => {
+    assert.deepEqual(candidates().find((candidate) => candidate.id === "elsewhere"), { id: "elsewhere", kind: "repo-plugin", repo: url, skills: [], paths: {}, note: "plugin in another repo" });
+
+    const result = cli(["add", "--repo", url, "--select", "elsewhere"]);
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /cannot be picked: plugin in another repo/);
+  });
+
+  test("--ref without --repo and --repo with --catalog are usage errors", () => {
+    assert.equal(cli(["add", "--ref", "v1", "--candidates"]).status, 2);
+    assert.equal(cli(["add", "--path", "skills", "--candidates"]).status, 2);
+    assert.equal(cli(["add", "--repo", url, "--catalog", url, "--candidates"]).status, 2);
+    assert.equal(cli(["add", "--repo", url, "--repo", url, "--candidates"]).status, 2);
+    assert.equal(cli(["init", "--ref", "v1", "--candidates"]).status, 2);
+  });
+
+  test("a failed install leaves the manifest as it was", () => {
+    const other = makeOrigin("other");
+    write(join(other, "skills/alpha/SKILL.md"), "Other alpha.\n");
+    commit(other, "v1");
+    setSources([{ repo: `file://${other}`, path: "skills/alpha" }]);
+    assert.equal(cli(["install"]).status, 0);
+    const before = readFileSync(join(repo, ".agents/skills.json"), "utf8");
+
+    const result = cli(["add", "--repo", url, "--select", "demo:alpha"]);
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /alpha/);
+    assert.doesNotMatch(result.stderr, /not among the candidates/);
+    assert.equal(readFileSync(join(repo, ".agents/skills.json"), "utf8"), before);
+  });
+});

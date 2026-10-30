@@ -31,9 +31,10 @@ import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { catalogRepo, latestRelease, TEMPLATE_SUFFIX, withRequires } from "./catalog.mjs";
+import { CATALOG_PREFIX, catalogRepo, latestRelease, TEMPLATE_SUFFIX, withRequires } from "./catalog.mjs";
 import { resolveCatalogPlan } from "./catalog-plan.mjs";
 import { askReplace } from "./prompt.mjs";
+import { pluginWithPath } from "./repo-source.mjs";
 import { assertRelPath, assertRepo, assertSkillName, fetchSource, git, insideTree, latestCommit, walk } from "./git.mjs";
 import { diffLock, findCollisions, hashFiles, keptText, resolvePluginSource, rewritePluginRefs } from "./lib.mjs";
 import { sessionNotice } from "./notice.mjs";
@@ -78,17 +79,82 @@ const EXECUTABLE_BITS = 0o111;
 const GITHUB_SHORTHAND = /^[\w.-]+\/[\w.-]+$/;
 
 /**
+ * Resolves the git URL of a `repo` source: `owner/name` goes to GitHub, any other is validated as given.
+ *
+ * @param entry - `repo` source of the manifest.
+ * @returns The URL the lock stores in `repo`.
+ * @throws {Error} If the repo is not valid.
+ */
+function repoUrl(entry) {
+  return GITHUB_SHORTHAND.test(entry.repo) ? `https://github.com/${entry.repo}.git` : assertRepo(entry.repo);
+}
+
+/**
+ * Groups the `repo` sources of the manifest by resolved repo: each one's siblings,
+ * itself included, are the skills it may reference without the plugin prefix
+ * when they belong to its same plugin.
+ *
+ * @param manifest - Manifest read.
+ * @returns Resolved repo URL to the list of `{ name, path }` (name is the basename of `path`).
+ * @throws {Error} If a repo, path or name is not valid.
+ */
+function repoSiblings(manifest) {
+  const siblings = new Map();
+  for (const entry of manifest.sources.filter((candidate) => candidate.repo !== undefined)) {
+    const url = repoUrl(entry);
+    const skillPath = assertRelPath(entry.path);
+    const name = assertSkillName(path.posix.basename(skillPath));
+    siblings.set(url, [...(siblings.get(url) ?? []), { name, path: skillPath }]);
+  }
+  return siblings;
+}
+
+/**
+ * Finds the marketplace plugin of a downloaded origin that lists a `repo` source's path.
+ *
+ * @param tree - Origin checkout.
+ * @param skillPath - Skill path relative to the origin root.
+ * @returns `{ name, skills }`, or `undefined` if no plugin lists it.
+ */
+function repoPluginOf(tree, skillPath) {
+  try {
+    return pluginWithPath(tree, skillPath);
+  } catch {
+    // WHY: installing never needed the marketplace before; a broken one upstream means "not in a plugin", nothing is rewritten.
+    return undefined;
+  }
+}
+
+/**
+ * Names the lock holds from `repo` sources of one resolved repo: what the siblings
+ * were when its skills were last built.
+ *
+ * @param lock - Lock read.
+ * @param url - Resolved repo URL.
+ * @returns The names.
+ */
+function lockedSiblings(lock, url) {
+  // NOTE: a `repo` source's key is `<repo>/<path>`; plugin, catalog and local keys never end that way.
+  return Object.keys(lock.skills).filter((name) => {
+    const { source, repo, path: skillPath } = lock.skills[name];
+    return repo === url && !source.startsWith(CATALOG_PREFIX) && source.endsWith(`/${skillPath}`);
+  });
+}
+
+/**
  * Resolves where a source is published: repo, ref or sha, and path.
  *
  * @param entry - `plugin` or `repo` source of the manifest.
  * @param marketplaces - What `loadMarketplaces` returns.
- * @returns `{ repo, ref?, sha?, path, plugin? }`; `plugin` only for marketplace ones.
+ * @returns `{ repo, ref?, sha?, path, plugin? }`; `plugin` only for marketplace ones. A `repo`
+ * source with `ref` carries the exact commit of that tag or branch as `sha`.
  * @throws {Error} If the marketplace or plugin are missing, or the repo or path are not valid.
  */
 function describeSource(entry, marketplaces) {
   if (entry.repo !== undefined) {
-    const repo = GITHUB_SHORTHAND.test(entry.repo) ? `https://github.com/${entry.repo}.git` : assertRepo(entry.repo);
-    return { repo, ref: entry.ref, path: assertRelPath(entry.path) };
+    const repo = repoUrl(entry);
+    const skillPath = assertRelPath(entry.path);
+    return entry.ref === undefined ? { repo, path: skillPath } : { repo, sha: latestRelease(repo, entry.ref).commit, path: skillPath };
   }
   const [plugin, marketplaceName] = entry.plugin.split("@");
   const marketplace = marketplaces.get(marketplaceName);
@@ -164,9 +230,12 @@ function versionOf(dir) {
 /**
  * Builds the files of each skill of a downloaded origin: filters the requested
  * ones, rewrites references between skills of the same plugin and adds the license.
+ * A `repo` source whose path a marketplace plugin of the origin lists is rewritten
+ * against its manifest siblings of that same plugin.
  *
  * @param tree - Origin checkout.
- * @param plan - Source plan: `entry`, `root` (plugin root or skill path) and `plugin`.
+ * @param plan - Source plan: `entry`, `root` (plugin root or skill path), `plugin` and,
+ * for `repo` sources, `siblings`.
  * @returns Skills with name, path in the origin, files and version.
  * @throws {Error} If a skill contains symlinks or escapes the origin.
  */
@@ -178,14 +247,19 @@ function collectSkills(tree, plan) {
     ? readdirSync(insideTree(tree, skillsDir)).filter((name) => existsSync(path.join(tree, skillsDir, name, SKILL_FILE)))
     : [path.posix.basename(plan.root)];
   const wanted = names.filter((name) => plan.entry.skills === undefined || plan.entry.skills.includes(name)).map(assertSkillName);
-  const installed = new Set(wanted);
+  const repoPlugin = isPlugin ? undefined : repoPluginOf(tree, plan.root);
+  const plugin = isPlugin ? plan.plugin : repoPlugin?.name;
+  const ownPaths = new Set((repoPlugin?.skills ?? []).map((skill) => skill.path));
+  const installed = isPlugin
+    ? new Set(wanted)
+    : new Set(plan.siblings.filter((sibling) => ownPaths.has(sibling.path)).map((sibling) => sibling.name));
   const license = [path.join(pluginRoot, LICENSE), path.join(tree, LICENSE)].find(isRegularFile);
   const version = versionOf(pluginRoot);
   return wanted.map((name) => {
     const rel = isPlugin ? path.posix.join(skillsDir, name) : plan.root;
     const files = walk(insideTree(tree, rel)).map((file) =>
-      isPlugin && !file.content.includes(0)
-        ? { ...file, content: Buffer.from(rewritePluginRefs(file.content.toString("utf8"), plan.plugin, installed)) }
+      plugin !== undefined && !file.content.includes(0)
+        ? { ...file, content: Buffer.from(rewritePluginRefs(file.content.toString("utf8"), plugin, installed)) }
         : file,
     );
     if (license !== undefined && !files.some((file) => file.path === LICENSE)) {
@@ -232,12 +306,14 @@ function planLocal(entry, { paths, lock, home, update }) {
 
 /**
  * Decides what to do with a source: leave it, rebuild it at the lock commit
- * (something is missing or its skills list changed) or fetch it at the latest
- * published (new or requested in `update`).
+ * (something is missing, its skills list changed or, for a `repo` source, the set of
+ * sources of its repo changed) or fetch it at the latest published (new or requested
+ * in `update`).
  *
  * @param entry - Manifest source.
- * @param context - `{ paths, lock, home, marketplaces, update }`.
- * @returns Plan with `key`, `entry`, pinned `names` and, if it must be fetched, `repo`, `commit`, `root` and `plugin`;
+ * @param context - `{ paths, lock, home, marketplaces, update, siblings }`.
+ * @returns Plan with `key`, `entry`, pinned `names` and, if it must be fetched, `repo`, `commit`, `root`, `plugin`
+ * and, for a `repo` source, `siblings`;
  * a catalog plan only carries `catalog: true` and is resolved skill by skill when fetching.
  * @throws {Error} If a pinned skill was edited by hand and overwriting was not requested.
  */
@@ -247,6 +323,8 @@ function planSource(entry, context) {
   }
   const { paths, lock, marketplaces, update } = context;
   const key = sourceKey(entry);
+  const url = entry.repo === undefined ? undefined : repoUrl(entry);
+  const siblings = url === undefined ? {} : { siblings: context.siblings.get(url) };
   const names = lockedNames(lock, entry);
   if (entry.catalog !== undefined) {
     assertUntouched(paths, lock, names.filter((name) => update !== true && update !== name));
@@ -254,10 +332,13 @@ function planSource(entry, context) {
   }
   if (names.length === 0 || update === true || names.includes(update)) {
     const resolved = describeSource(entry, marketplaces);
-    return { key, entry, names, repo: resolved.repo, commit: latestCommit(resolved), root: resolved.path, plugin: resolved.plugin };
+    return { key, entry, names, repo: resolved.repo, commit: latestCommit(resolved), root: resolved.path, plugin: resolved.plugin, ...siblings };
   }
   assertUntouched(paths, lock, names);
-  const listChanged = entry.skills !== undefined && !sameSet(entry.skills, names);
+  // WHY: like a plugin's `skills` list, the repo's sources decide which references lose their prefix.
+  const listChanged = url === undefined
+    ? entry.skills !== undefined && !sameSet(entry.skills, names)
+    : !sameSet(siblings.siblings.map((sibling) => sibling.name), lockedSiblings(lock, url));
   if (!listChanged && names.every((name) => installedHash(paths, name) !== undefined)) {
     return { key, entry, names };
   }
@@ -265,7 +346,7 @@ function planSource(entry, context) {
   const skillPath = assertRelPath(first.path);
   const isPlugin = entry.plugin !== undefined;
   const pluginRoot = isPlugin ? path.posix.dirname(path.posix.dirname(skillPath)) : skillPath;
-  return { key, entry, names, repo: first.repo, commit: first.commit, root: pluginRoot, plugin: entry.plugin?.split("@")[0] };
+  return { key, entry, names, repo: first.repo, commit: first.commit, root: pluginRoot, plugin: entry.plugin?.split("@")[0], ...siblings };
 }
 
 /**
@@ -327,20 +408,25 @@ function describeChanges(paths, plans, stale, lock, replace) {
 
 /**
  * Fetches each source that needs it and builds its skills; catalog sources are
- * resolved skill by skill.
+ * resolved skill by skill. Each repo and commit is fetched once.
  *
  * @param plans - Plan of each source; `skills` (and, for catalogs, `keep`) is added to them.
  * @param temp - Temporary folder where origins are fetched.
  * @param context - `{ paths, lock, update }`, for catalog sources.
  */
 function fetchPlans(plans, temp, context) {
+  const trees = new Map();
   for (const [index, plan] of plans.entries()) {
     if (plan.catalog === true) {
       resolveCatalogPlan(plan, { ...context, temp, index });
     } else if (plan.commit !== undefined) {
-      const tree = path.join(temp, String(index));
-      fetchSource({ repo: plan.repo, commit: plan.commit }, tree);
-      plan.skills = collectSkills(tree, plan);
+      const fetched = `${plan.repo}@${plan.commit}`;
+      if (!trees.has(fetched)) {
+        const tree = path.join(temp, String(index));
+        fetchSource({ repo: plan.repo, commit: plan.commit }, tree);
+        trees.set(fetched, tree);
+      }
+      plan.skills = collectSkills(trees.get(fetched), plan);
     }
   }
 }
@@ -430,7 +516,7 @@ export function installAll(root, { home, update, dryRun = false, log = console.l
   }
   const stale = staleNames(lock, manifest);
   assertUntouched(paths, lock, stale);
-  const context = { paths, lock, home, marketplaces: loadMarketplaces(home), update };
+  const context = { paths, lock, home, marketplaces: loadMarketplaces(home), update, siblings: repoSiblings(manifest) };
   const plans = manifest.sources.map((entry) => planSource(entry, context));
   const temp = mkdtempSync(path.join(tmpdir(), "skills-"));
   try {

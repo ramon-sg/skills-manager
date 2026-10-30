@@ -61,13 +61,26 @@ export function assertCatalogEntry(entry) {
     throw new Error(`Unknown key "${unknown[0]}" in a catalog source; allowed: ${ENTRY_KEYS.join(", ")}`);
   }
   catalogRepo(entry.catalog);
-  if (entry.ref !== undefined && (typeof entry.ref !== "string" || entry.ref === "" || entry.ref.startsWith("-"))) {
-    throw new Error(`"ref" of ${entry.catalog} must be a branch or tag name.`);
-  }
+  assertRef(entry.ref, entry.catalog);
   if (!Array.isArray(entry.skills) || entry.skills.length === 0) {
     throw new Error(`The catalog source ${entry.catalog} needs a non-empty "skills" list.`);
   }
   entry.skills.forEach(assertSkillName);
+}
+
+/**
+ * Validates the optional `ref` of a manifest source.
+ *
+ * @param ref - Value to check; `undefined` is valid (follow HEAD or the latest release).
+ * @param repo - Repo the source names, for the message.
+ * @throws {Error} If it is not a non-empty text that can be taken for a git option.
+ * @example
+ * assertRef("v1.0.0", "owner/repo");
+ */
+export function assertRef(ref, repo) {
+  if (ref !== undefined && (typeof ref !== "string" || ref === "" || ref.startsWith("-"))) {
+    throw new Error(`"ref" of ${repo} must be a branch or tag name.`);
+  }
 }
 
 /**

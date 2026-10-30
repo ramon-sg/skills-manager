@@ -4,6 +4,26 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## 1.3.0
+
+### Added
+
+- `init` and `add` take `--repo <owner/name | URL>`, with `--ref` and `--path`: they
+  list and install skills from a GitHub repo without the plugin or marketplace on the
+  machine. With a `.claude-plugin/marketplace.json` they offer its plugins; without
+  one, or with `--path`, the folders under `--path` (default `skills`). `--select` takes `<plugin>`,
+  `<plugin>:a+b` or `<skill>`. Each skill is its own `repo` entry, so `update <name>`
+  moves only that one.
+- A `repo` entry inside a marketplace plugin rewrites `<plugin>:<skill>` references
+  between its skills on install, like plugin sources. Heads up: the hash of an
+  existing entry like this can change on the next rebuild.
+
+### Fixed
+
+- A `repo` entry with `ref` pins the commit of that exact tag or branch: an annotated
+  tag is locked to the commit, not the tag object, and `main` no longer matches
+  `feature/main`.
+
 ## 1.2.0
 
 ### Added

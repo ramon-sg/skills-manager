@@ -109,7 +109,8 @@ installing. Ctrl+C cancels without changing anything.
 Without a terminal (for example from an agent session), `init` and `add` accept
 `--candidates` (prints what is on the machine as JSON) and `--select <ids>` (picks
 without asking). Ids are `plugin@marketplace`, `plugin@marketplace:skill1+skill2`, or
-the name of a local skill, separated by commas.
+the name of a local skill, separated by commas. With `--repo` they follow
+[From a git repo](#from-a-git-repo).
 
 ## How to update
 
@@ -131,6 +132,47 @@ bit). To change something, use the commands. If the difference was a hand edit,
 - **Move to the latest published:** `npx @ramon-sg/skills-manager update <name>`. It overwrites
   the edit and moves the lock to the latest commit. `update --dry-run` warns
   `<name>: edited by hand, will be overwritten` for every skill that would lose an edit.
+
+## From a git repo
+
+`init` and `add` can take skills straight from a GitHub repo (or any `https://` or
+`file://` git URL), without the plugin or
+its marketplace on your machine:
+
+```sh
+npx @ramon-sg/skills-manager add --repo owner/skills --candidates
+npx @ramon-sg/skills-manager add --repo owner/skills --select my-plugin:one+two
+```
+
+`--repo` takes `owner/name`, an `https://` URL or a `file://` URL, once. `--ref` picks
+a tag or branch and `--path` the folder with the skills (default `skills`). `--ref`
+and `--path` need `--repo`, and `--repo` does not mix with `--catalog`.
+
+- **With `.claude-plugin/marketplace.json`**, `--candidates` lists its plugins
+  (`kind: "repo-plugin"`) with their skills: the plugin's `skills` list, or
+  `<plugin root>/skills/*`. A plugin whose source is another repo shows
+  `note: "plugin in another repo"` and cannot be picked.
+- **Without it, or with `--path`**, every folder with a `SKILL.md` under `--path`
+  (default `skills`) is a skill (`kind: "repo-skill"`). A `--path` you give wins
+  over the marketplace.
+
+`--select` takes `<plugin>` (all its skills), `<plugin>:a+b` (some) or `<skill>`,
+separated by commas. In a terminal you get the same checkbox list as for plugins.
+
+Each picked skill becomes its own `repo` entry, with the repo as you typed it, the
+skill's folder as `path` and `ref` if you gave one:
+
+```json
+{ "repo": "owner/skills", "path": "plugins/my-plugin/skills/one", "ref": "v1.2.0" }
+```
+
+So `update <name>` moves only that skill, and a skill already in the manifest is not
+offered again. A `ref` pins the commit of that exact tag or branch (an annotated tag
+is locked to its commit).
+
+Inside a marketplace plugin, references like `my-plugin:other-skill` between skills of
+the same repo are rewritten to `other-skill` on install, as for plugin sources. Adding
+or removing a sibling rebuilds the others at their locked commit.
 
 ## Local skills
 

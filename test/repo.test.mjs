@@ -110,18 +110,23 @@ function setSources(sources) {
 }
 
 /**
- * Writes a fake Claude marketplace under the fake home.
+ * Writes the Claude Code marketplace of an origin repo, the file `readRepoSkills` reads.
  *
- * @param root - Origin repo the marketplace points at.
+ * @param root - Origin repo.
  * @param plugins - Plugin entries of its `marketplace.json`.
  */
 function writeMarketplace(root, plugins) {
-  const dir = join(home, ".claude/plugins/marketplaces/local");
-  write(join(dir, ".claude-plugin/marketplace.json"), JSON.stringify({ name: "local", plugins }));
-  write(
-    join(home, ".claude/plugins/known_marketplaces.json"),
-    JSON.stringify({ local: { source: { source: "git", url: `file://${root}` }, installLocation: dir } }),
-  );
+  write(join(root, ".claude-plugin/marketplace.json"), JSON.stringify({ name: "local", plugins }));
+}
+
+/**
+ * Reads a file installed in the temporary repo.
+ *
+ * @param rel - Path under `.agents/skills/`.
+ * @returns Its text.
+ */
+function installed(rel) {
+  return readFileSync(join(repo, ".agents/skills", rel), "utf8");
 }
 
 beforeEach(() => {
@@ -165,5 +170,99 @@ describe("repo ref", () => {
 
     assert.equal(result.status, 1);
     assert.match(result.stderr, /has no main/);
+  });
+});
+
+describe("repo sources inside a marketplace plugin", () => {
+  /** Origin with a `demo` plugin whose `alpha` skill points at its sibling `beta`. */
+  let origin;
+
+  /** Manifest entry of each skill of the plugin. */
+  let alpha;
+  let beta;
+
+  beforeEach(() => {
+    origin = makeOrigin();
+    writeMarketplace(origin, [{ name: "demo", source: "./plugins/demo" }]);
+    write(join(origin, "plugins/demo/skills/alpha/SKILL.md"), "Use demo:beta and other:beta.\n");
+    write(join(origin, "plugins/demo/skills/beta/SKILL.md"), "Beta.\n");
+    commit(origin, "v1");
+    alpha = { repo: `file://${origin}`, path: "plugins/demo/skills/alpha" };
+    beta = { repo: `file://${origin}`, path: "plugins/demo/skills/beta" };
+  });
+
+  test("references to a sibling in the manifest are rewritten; others are left", () => {
+    setSources([alpha, beta]);
+
+    const result = cli(["install"]);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(installed("alpha/SKILL.md"), "Use beta and other:beta.\n");
+  });
+
+  test("without the sibling the reference stays prefixed", () => {
+    setSources([alpha]);
+
+    const result = cli(["install"]);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(installed("alpha/SKILL.md"), "Use demo:beta and other:beta.\n");
+  });
+
+  test("adding the sibling later rewrites the installed one at its lock commit", () => {
+    setSources([alpha]);
+    assert.equal(cli(["install"]).status, 0);
+    const pinned = lock().skills.alpha.commit;
+    write(join(origin, "plugins/demo/skills/alpha/SKILL.md"), "Use demo:beta, v2.\n");
+    commit(origin, "v2");
+    setSources([alpha, beta]);
+
+    const result = cli(["install"]);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(installed("alpha/SKILL.md"), "Use beta and other:beta.\n");
+    assert.equal(lock().skills.alpha.commit, pinned);
+  });
+
+  test("removing the sibling restores the prefix", () => {
+    setSources([alpha]);
+    assert.equal(cli(["install"]).status, 0);
+    setSources([alpha, beta]);
+    assert.equal(cli(["install"]).status, 0);
+    setSources([alpha]);
+
+    const result = cli(["install"]);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(installed("alpha/SKILL.md"), "Use demo:beta and other:beta.\n");
+    assert.equal(lock().skills.beta, undefined);
+    assert.equal(cli(["check"]).status, 0);
+  });
+
+  test("update <name> moves only that skill", () => {
+    setSources([alpha, beta]);
+    assert.equal(cli(["install"]).status, 0);
+    const before = lock().skills;
+    const v2 = commit(origin, "v2");
+
+    const result = cli(["update", "alpha"]);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(lock().skills.alpha.commit, v2);
+    assert.equal(lock().skills.beta.commit, before.beta.commit);
+    assert.equal(installed("alpha/SKILL.md"), "Use beta and other:beta.\n");
+  });
+
+  test("a repo without a marketplace is installed as before", () => {
+    const plain = makeOrigin("plain");
+    write(join(plain, "skills/x/SKILL.md"), "Use demo:y.\n");
+    write(join(plain, "skills/y/SKILL.md"), "Y.\n");
+    commit(plain, "v1");
+    setSources([{ repo: `file://${plain}`, path: "skills/x" }, { repo: `file://${plain}`, path: "skills/y" }]);
+
+    const result = cli(["install"]);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(installed("x/SKILL.md"), "Use demo:y.\n");
   });
 });

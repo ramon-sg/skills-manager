@@ -55,6 +55,24 @@ describe("parseManifest", () => {
   });
 });
 
+describe("parseManifest repo sources", () => {
+  /**
+   * Wraps one source in a manifest text.
+   *
+   * @param source - Source entry.
+   * @returns Manifest JSON.
+   */
+  const manifestOf = (source) => JSON.stringify({ sources: [source] });
+
+  test("a repo source needs a relative path and a valid ref", () => {
+    assert.throws(() => parseManifest(manifestOf({ repo: "o/r" })), /path/);
+    assert.throws(() => parseManifest(manifestOf({ repo: "o/r", path: "../x" })), /path/);
+    assert.throws(() => parseManifest(manifestOf({ repo: "o/r", path: "s", ref: "-x" })), /ref/);
+    assert.throws(() => parseManifest(manifestOf({ repo: "o/r", path: "s", ref: 3 })), /ref/);
+    assert.equal(parseManifest(manifestOf({ repo: "o/r", path: "skills/a", ref: "v1" })).sources.length, 1);
+  });
+});
+
 describe("resolvePluginSource", () => {
   test("plugin with url and sha, like superpowers", () => {
     const entry = {

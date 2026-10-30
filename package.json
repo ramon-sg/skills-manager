@@ -37,7 +37,7 @@
     "provenance": true
   },
   "scripts": {
-    "test": "node --test test/lib.test.mjs test/catalog-lib.test.mjs test/notice.test.mjs test/cli.test.mjs test/catalog.test.mjs test/repo-source.test.mjs test/pack.test.mjs test/no-project-names.test.mjs"
+    "test": "node --test test/lib.test.mjs test/catalog-lib.test.mjs test/notice.test.mjs test/cli.test.mjs test/catalog.test.mjs test/repo-source.test.mjs test/repo.test.mjs test/pack.test.mjs test/no-project-names.test.mjs"
   },
   "dependencies": {
     "@clack/prompts": "1.8.1"

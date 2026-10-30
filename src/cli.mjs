@@ -82,13 +82,15 @@ const GITHUB_SHORTHAND = /^[\w.-]+\/[\w.-]+$/;
  *
  * @param entry - `plugin` or `repo` source of the manifest.
  * @param marketplaces - What `loadMarketplaces` returns.
- * @returns `{ repo, ref?, sha?, path, plugin? }`; `plugin` only for marketplace ones.
+ * @returns `{ repo, ref?, sha?, path, plugin? }`; `plugin` only for marketplace ones. A `repo`
+ * source with `ref` carries the exact commit of that tag or branch as `sha`.
  * @throws {Error} If the marketplace or plugin are missing, or the repo or path are not valid.
  */
 function describeSource(entry, marketplaces) {
   if (entry.repo !== undefined) {
     const repo = GITHUB_SHORTHAND.test(entry.repo) ? `https://github.com/${entry.repo}.git` : assertRepo(entry.repo);
-    return { repo, ref: entry.ref, path: assertRelPath(entry.path) };
+    const skillPath = assertRelPath(entry.path);
+    return entry.ref === undefined ? { repo, path: skillPath } : { repo, sha: latestRelease(repo, entry.ref).commit, path: skillPath };
   }
   const [plugin, marketplaceName] = entry.plugin.split("@");
   const marketplace = marketplaces.get(marketplaceName);

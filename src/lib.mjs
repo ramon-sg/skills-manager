@@ -8,8 +8,8 @@
  */
 import { createHash } from "node:crypto";
 
-import { assertCatalogEntry, CATALOG_PREFIX } from "./catalog.mjs";
-import { assertSkillName } from "./git.mjs";
+import { assertCatalogEntry, assertRef, CATALOG_PREFIX } from "./catalog.mjs";
+import { assertRelPath, assertSkillName } from "./git.mjs";
 
 /** Keys that identify the origin of a manifest source; only one per entry. */
 const SOURCE_KINDS = ["plugin", "repo", "local", "catalog"];
@@ -104,6 +104,10 @@ export function parseManifest(text) {
     }
     if (kinds[0] === "catalog") {
       assertCatalogEntry(entry);
+    }
+    if (kinds[0] === "repo") {
+      assertRelPath(entry.path);
+      assertRef(entry.ref, entry.repo);
     }
   }
   const catalogs = manifest.sources.map((entry) => entry.catalog).filter((catalog) => catalog !== undefined);

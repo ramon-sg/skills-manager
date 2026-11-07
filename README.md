@@ -36,6 +36,17 @@ The examples below use `npx @ramon-sg/skills-manager <command>`. Once it is a
 devDependency, `npx --no-install skills-manager <command>` (or the scripts above)
 runs the installed copy.
 
+## Language and help
+
+The terminal speaks Spanish by default. Pick English with `--lang en` or with
+`SKILLS_MANAGER_LANG=en`; `--lang` wins over the variable, and the system `LANG` is
+ignored. `skills-manager --help` (or `-h`) lists every command and flag.
+
+Each command ends with a short `[ok]` or `[!]` block next to Kuro, the mascot. The
+block only shows in a terminal, and `NO_COLOR` turns the colors off. Scripts that read
+the terminal text should set `SKILLS_MANAGER_LANG=en`; `--candidates` prints the same
+JSON in either language.
+
 ## Files
 
 | File                       | What it is                                                              |

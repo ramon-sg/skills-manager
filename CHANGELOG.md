@@ -4,6 +4,26 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## 1.4.0
+
+### Added
+
+- The terminal speaks Spanish by default and English with `--lang en` or
+  `SKILLS_MANAGER_LANG=en`. `--lang` wins over the variable; the system `LANG` is
+  ignored.
+- `--help` (and `-h`) prints every command, flag and the language options, and each
+  command ends with a closing block next to Kuro, the mascot. The block only shows
+  in a terminal and honors `NO_COLOR`.
+- A manifest, lock or `catalog.json` that is not valid JSON now fails with a message
+  that names the file, followed by the parser's own message.
+
+### Changed
+
+- Default terminal output is now Spanish, and the `✅`/`❌` prefixes became the
+  `[ok]`/`[!]` closing block. Scripts that read the terminal text should set
+  `SKILLS_MANAGER_LANG=en`. `--candidates` is unchanged: it still prints the same JSON.
+- `init` prints its closing block only after the bundled skill has been copied.
+
 ## 1.3.0
 
 ### Added

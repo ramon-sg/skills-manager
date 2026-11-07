@@ -11,8 +11,11 @@ const SRC_DIR = join(fileURLToPath(new URL(".", import.meta.url)), "..", "src");
 const FORBIDDEN = /abastio/i;
 
 test("no file in src/ mentions the originating project", () => {
-  for (const file of readdirSync(SRC_DIR)) {
-    const text = readFileSync(join(SRC_DIR, file), "utf8");
-    assert.ok(!FORBIDDEN.test(text), `src/${file} contains a project name`);
+  for (const entry of readdirSync(SRC_DIR, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile()) {
+      continue;
+    }
+    const file = join(entry.parentPath, entry.name);
+    assert.ok(!FORBIDDEN.test(readFileSync(file, "utf8")), `${file} contains a project name`);
   }
 });

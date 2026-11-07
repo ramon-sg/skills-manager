@@ -116,7 +116,7 @@ function makeOrigin(name) {
  * @returns Exit code and combined output.
  */
 function cli(args) {
-  const env = { ...process.env, SKILLS_HOME: home };
+  const env = { ...process.env, SKILLS_HOME: home, SKILLS_MANAGER_LANG: "en" };
   const result = spawnSync(process.execPath, [CLI, ...args], { cwd: repo, encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] });
   return { status: result.status, output: `${result.stdout}${result.stderr}` };
 }
@@ -603,7 +603,7 @@ describe("editable files", () => {
     const result = cli(["check"]);
 
     assert.equal(result.status, 1);
-    assert.match(result.output, /edited by hand: code-audit/);
+    assert.match(result.output, /edited by hand\s+code-audit/);
   });
 
   test("the lock is version 2 only while some skill has editable files", () => {

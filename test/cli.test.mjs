@@ -87,7 +87,7 @@ function publish(sha) {
  * @returns Exit code and combined output.
  */
 function cli(args) {
-  const env = { ...process.env, SKILLS_HOME: home };
+  const env = { ...process.env, SKILLS_HOME: home, SKILLS_MANAGER_LANG: "en" };
   const result = spawnSync(process.execPath, [CLI, ...args], { cwd: repo, encoding: "utf8", env });
   return { status: result.status, output: `${result.stdout}${result.stderr}` };
 }
@@ -249,10 +249,10 @@ describe("install", () => {
     const link = join(base, "bin", "skills-manager");
     mkdirSync(dirname(link), { recursive: true });
     symlinkSync(CLI, link);
-    const env = { ...process.env, SKILLS_HOME: home };
+    const env = { ...process.env, SKILLS_HOME: home, SKILLS_MANAGER_LANG: "en" };
     const result = spawnSync(process.execPath, [link, "check"], { cwd: repo, encoding: "utf8", env });
     assert.equal(result.status, 1);
-    assert.match(`${result.stdout}${result.stderr}`, /edited by hand: alpha/);
+    assert.match(`${result.stdout}${result.stderr}`, /edited by hand\s+alpha/);
   });
 
   test("a hand-edited skill makes check and install fail", () => {
@@ -291,7 +291,7 @@ describe("install", () => {
     chmodSync(join(repo, ".agents/skills/beta/run.sh"), 0o644);
     const check = cli(["check"]);
     assert.equal(check.status, 1);
-    assert.match(check.output, /edited by hand: beta/);
+    assert.match(check.output, /edited by hand\s+beta/);
   });
 
   test("a third-party skill named like an own one stops with exclude", () => {

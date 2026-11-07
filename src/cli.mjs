@@ -33,6 +33,8 @@ import { fileURLToPath } from "node:url";
 
 import { CATALOG_PREFIX, catalogRepo, latestRelease, TEMPLATE_SUFFIX, withRequires } from "./catalog.mjs";
 import { resolveCatalogPlan } from "./catalog-plan.mjs";
+import { printBlock } from "./banner.mjs";
+import { fail, list, msg, resolveLang, setLang, takeLang, text } from "./lang.mjs";
 import { askReplace } from "./prompt.mjs";
 import { pluginWithPath } from "./repo-source.mjs";
 import { assertRelPath, assertRepo, assertSkillName, fetchSource, git, insideTree, latestCommit, walk } from "./git.mjs";
@@ -648,14 +650,14 @@ function driftProblems(paths, manifest, lock) {
   const remote = manifest.sources.filter((entry) => entry.local === undefined);
   const expected = (entry) => (entry.catalog === undefined ? entry.skills : withRequires(entry.skills, (name) => lock.skills[name]?.requires ?? []));
   const plugins = manifestPlugins(manifest);
-  const pluginsDiff = `lock [${lock.plugins.join(", ")}], manifest [${plugins.join(", ")}]`;
+  const pluginsDiff = text("check.pluginsDiff", { lock: lock.plugins.join(", "), manifest: plugins.join(", ") });
   return [
-    ["missing on disk", diff.missing],
-    ["edited by hand", modified],
-    ["sources not installed", manifest.sources.filter((entry) => lockedNames(lock, entry).length === 0).map(sourceLabel)],
-    ["in the lock without a source in the manifest", staleNames(lock, manifest)],
-    ["with a different skills list than the lock", remote.filter((e) => e.skills !== undefined && !sameSet(expected(e), lockedNames(lock, e))).map(sourceKey)],
-    ["lock plugins differ from the manifest", JSON.stringify(plugins) === JSON.stringify(lock.plugins) ? [] : [pluginsDiff]],
+    [text("check.problems.missing"), diff.missing],
+    [text("check.problems.edited"), modified],
+    [text("check.problems.notInstalled"), manifest.sources.filter((entry) => lockedNames(lock, entry).length === 0).map(sourceLabel)],
+    [text("check.problems.stale"), staleNames(lock, manifest)],
+    [text("check.problems.skillsList"), remote.filter((e) => e.skills !== undefined && !sameSet(expected(e), lockedNames(lock, e))).map(sourceKey)],
+    [text("check.problems.plugins"), JSON.stringify(plugins) === JSON.stringify(lock.plugins) ? [] : [pluginsDiff]],
   ].filter(([, names]) => names.length > 0);
 }
 
@@ -672,13 +674,18 @@ function commandCheck(root) {
   const paths = resolvePaths(root, manifest);
   const problems = driftProblems(paths, manifest, readLock(paths));
   if (problems.length === 0) {
-    console.log("✅ Third-party skills match the lock and the manifest.");
+    printBlock({ mood: "ok", title: text("check.ok") }, process.stdout);
     return;
   }
-  console.error("❌ Third-party skills do not match the lock or the manifest (run skills-manager install):");
-  for (const [kind, names] of problems) {
-    console.error(`   ${kind}: ${names.join(", ")}`);
-  }
+  printBlock(
+    {
+      mood: "error",
+      title: text("check.drift"),
+      rows: problems.map(([kind, names]) => [kind, list(names)]),
+      next: { label: text("next.run"), command: "skills-manager install" },
+    },
+    process.stderr,
+  );
   process.exit(1);
 }
 
@@ -703,25 +710,34 @@ function commandList(root, home) {
     }
   }
   for (const [name, skill] of Object.entries(lock.skills)) {
-    const newer = latest.has(skill.source) && latest.get(skill.source) !== skill.commit ? "  (newer version available)" : "";
-    console.log(`${name}  ${skill.source}  ${skill.version ?? "-"} (${skill.commit?.slice(0, SHORT_SHA) ?? LOCAL_SOURCE})${newer}`);
+    const newer = latest.has(skill.source) && latest.get(skill.source) !== skill.commit ? text("list.newer") : "";
+    const row = { name, source: skill.source, version: skill.version ?? "-", commit: skill.commit?.slice(0, SHORT_SHA) ?? LOCAL_SOURCE, newer };
+    process.stdout.write(`${text("list.row", row)}\n`);
   }
 }
 
 /**
  * Runs `session-notice` for a SessionStart hook: the notice goes to stdout and
  * any problem becomes one line on stderr. It never exits non-zero, so a broken
- * manifest cannot break a session start.
+ * manifest or an invalid language cannot break a session start.
+ *
+ * @param args - The command-line arguments, `--lang` included.
  */
-function commandSessionNotice() {
+function commandSessionNotice(args) {
+  const write = (line) => process.stderr.write(`${line}\n`);
   try {
-    const { text, missing } = sessionNotice(git(["rev-parse", "--show-toplevel"], process.cwd()));
-    process.stdout.write(text);
-    for (const name of missing) {
-      console.error(`skills-manager: session-start skill "${name}" is not installed`);
-    }
+    setLang(resolveLang(takeLang(args).flag, process.env));
   } catch (error) {
-    console.error(`skills-manager: ${error.message.split("\n")[0]}`);
+    // WHY: a hook must keep working; the invalid language is reported and Spanish is used.
+    setLang("es");
+    write(text("notice.failed", { message: error.message.split("\n")[0] }));
+  }
+  try {
+    const { text: notice, missing } = sessionNotice(git(["rev-parse", "--show-toplevel"], process.cwd()));
+    process.stdout.write(notice);
+    missing.forEach((name) => write(text("notice.missing", { name })));
+  } catch (error) {
+    write(text("notice.failed", { message: error.message.split("\n")[0] }));
   }
 }
 
@@ -733,7 +749,7 @@ const REPLACE_FLAG = "--replace";
  *
  * @param args - Subcommand arguments.
  * @returns The other arguments and the set of names.
- * @throws {Error} Usage error (exits with 2) if it has no value.
+ * @throws {Error} Usage error (`replace.missing`, exits with 2) if it has no value.
  */
 function takeReplace(args) {
   const rest = [];
@@ -747,7 +763,7 @@ function takeReplace(args) {
     }
     const value = inline ?? args[index + 1];
     if (value === undefined || value.startsWith("--")) {
-      throw Object.assign(new Error(`${REPLACE_FLAG} needs the names of the skills to replace.`), { exitCode: 2 });
+      throw fail("replace.missing", {}, { exitCode: 2 });
     }
     if (inline === undefined) {
       index += 1;
@@ -799,20 +815,47 @@ export async function installAsking(root, opts, ask) {
 const TERMINAL = { get interactive() { return process.stdin.isTTY === true; }, askReplace };
 
 /**
- * Entry point: finds the repo root and dispatches the subcommand. Errors end
- * with their `exitCode` (2 for usage errors) or with 1.
+ * Prints an error as a block on stderr. An error built with `fail` has a `key`: its first
+ * line is the title and the rest are the lines. Any other (git, Node, fs) gets the generic
+ * title and its message whole.
+ *
+ * @param error - What was thrown.
+ */
+function printError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  const [first, ...rest] = message.split("\n");
+  const block =
+    error?.key === undefined
+      ? { mood: "error", title: text("errors.unexpected"), lines: [first, ...rest] }
+      : { mood: "error", title: first, ...(rest.length > 0 ? { lines: rest } : {}) };
+  printBlock(block, process.stderr);
+}
+
+/** Flags that ask for the help instead of running a command. */
+const HELP_FLAGS = ["--help", "-h"];
+
+/**
+ * Entry point: picks the language, finds the repo root and dispatches the subcommand.
+ * Errors end with their `exitCode` (2 for usage errors) or with 1.
  */
 async function main() {
-  const [subcommand, ...args] = process.argv.slice(2);
+  const argv = process.argv.slice(2);
   const home = process.env.SKILLS_HOME ?? homedir();
-  if (subcommand === "session-notice") {
-    commandSessionNotice();
+  if (argv.includes("session-notice")) {
+    commandSessionNotice(argv);
     return;
   }
   try {
+    const { rest: words, flag } = takeLang(argv);
+    setLang(resolveLang(flag, process.env));
+    if (words.some((arg) => HELP_FLAGS.includes(arg)) || words[0] === "help") {
+      process.stdout.write(`${msg().usage.main}\n`);
+      return;
+    }
+    const [subcommand, ...args] = words;
     const { rest, names: replace } = takeReplace(args);
     if (replace.size > 0 && !["install", "update", "init", "add"].includes(subcommand)) {
-      throw Object.assign(new Error(`${REPLACE_FLAG} goes with install, update, init or add.`), { exitCode: 2 });
+      throw fail("replace.misplaced", {}, { exitCode: 2 });
     }
     const root = git(["rev-parse", "--show-toplevel"], process.cwd());
     if (subcommand === "install") {
@@ -827,10 +870,10 @@ async function main() {
     } else if (subcommand === "init" || subcommand === "add") {
       await commandPick(root, { init: subcommand === "init", args: rest, home, install: () => installAsking(root, { home, replace }, TERMINAL) });
     } else {
-      throw new Error(`Unknown subcommand: ${subcommand ?? "(none)"}; use install, update, check, list, session-notice, init or add`);
+      throw fail("errors.unknownCommand", { command: subcommand ?? "(none)" }, { exitCode: 2 });
     }
   } catch (error) {
-    console.error(`❌ ${error.message}`);
+    printError(error);
     process.exit(error.exitCode ?? 1);
   }
 }

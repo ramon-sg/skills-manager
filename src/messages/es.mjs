@@ -10,6 +10,38 @@ export const es = {
     invalid: ({ source, value }) => `${source} espera es o en: ${value}`,
     missing: () => "--lang necesita un valor: es o en",
   },
+  errors: {
+    unexpected: () => "Algo salió mal",
+    unknownCommand: ({ command }) => `Comando desconocido: ${command}; usa install, update, check, list, session-notice, init o add`,
+  },
+  replace: {
+    missing: () => "--replace necesita los nombres de las skills que reemplazar.",
+    misplaced: () => "--replace va con install, update, init o add.",
+  },
+  next: {
+    run: () => "Para arreglarlo, ejecuta:",
+  },
+  check: {
+    ok: () => "Las skills de terceros coinciden con el lock y el manifiesto.",
+    drift: () => "Las skills de terceros no coinciden con el lock ni con el manifiesto.",
+    problems: {
+      missing: () => "faltan en el disco",
+      edited: () => "editadas a mano",
+      notInstalled: () => "orígenes sin instalar",
+      stale: () => "en el lock sin origen en el manifiesto",
+      skillsList: () => "con otra lista de skills que el lock",
+      plugins: () => "plugins del lock distintos a los del manifiesto",
+    },
+    pluginsDiff: ({ lock, manifest }) => `lock [${lock}], manifiesto [${manifest}]`,
+  },
+  list: {
+    row: ({ name, source, version, commit, newer }) => `${name}  ${source}  ${version} (${commit})${newer}`,
+    newer: () => "  (hay una versión más nueva)",
+  },
+  notice: {
+    failed: ({ message }) => `skills-manager: ${message}`,
+    missing: ({ name }) => `skills-manager: la skill de inicio de sesión "${name}" no está instalada`,
+  },
   usage: {
     main: `Uso: skills-manager <comando> [opciones]
 

@@ -8,6 +8,38 @@ export const en = {
     invalid: ({ source, value }) => `${source} expects es or en: ${value}`,
     missing: () => "--lang needs a value: es or en",
   },
+  errors: {
+    unexpected: () => "Something went wrong",
+    unknownCommand: ({ command }) => `Unknown subcommand: ${command}; use install, update, check, list, session-notice, init or add`,
+  },
+  replace: {
+    missing: () => "--replace needs the names of the skills to replace.",
+    misplaced: () => "--replace goes with install, update, init or add.",
+  },
+  next: {
+    run: () => "To fix it, run:",
+  },
+  check: {
+    ok: () => "Third-party skills match the lock and the manifest.",
+    drift: () => "Third-party skills do not match the lock or the manifest.",
+    problems: {
+      missing: () => "missing on disk",
+      edited: () => "edited by hand",
+      notInstalled: () => "sources not installed",
+      stale: () => "in the lock without a source in the manifest",
+      skillsList: () => "with a different skills list than the lock",
+      plugins: () => "lock plugins differ from the manifest",
+    },
+    pluginsDiff: ({ lock, manifest }) => `lock [${lock}], manifest [${manifest}]`,
+  },
+  list: {
+    row: ({ name, source, version, commit, newer }) => `${name}  ${source}  ${version} (${commit})${newer}`,
+    newer: () => "  (newer version available)",
+  },
+  notice: {
+    failed: ({ message }) => `skills-manager: ${message}`,
+    missing: ({ name }) => `skills-manager: session-start skill "${name}" is not installed`,
+  },
   usage: {
     main: `Usage: skills-manager <command> [options]
 

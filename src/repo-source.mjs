@@ -27,7 +27,7 @@ const PLUGIN_SKILLS_DIR = "skills";
 const RELATIVE_SOURCE = "./";
 
 /** Note of a plugin whose files live in another repo. */
-const OTHER_REPO_NOTE = "plugin in another repo";
+export const OTHER_REPO_NOTE = "plugin in another repo";
 
 /**
  * Reads a folder as a skill if it is a real folder, inside the tree, with a

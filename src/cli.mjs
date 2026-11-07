@@ -853,8 +853,9 @@ function firstCommand(argv) {
  *
  * @param result - What `installAll` returned.
  * @param dryRun - Whether it was `update --dry-run`.
+ * @param doneKey - Message key of the title when something changed.
  */
-function reportInstall(result, dryRun) {
+function reportInstall(result, dryRun, doneKey = "install.done") {
   const { changed, changes, noManifest, file } = result;
   let block;
   if (noManifest === true) {
@@ -862,7 +863,7 @@ function reportInstall(result, dryRun) {
   } else if (dryRun && changes.length > 0) {
     block = { mood: "question", title: text("install.dryRun"), lines: changes };
   } else if (!dryRun && changed) {
-    block = { mood: "ok", title: text("install.done"), lines: changes };
+    block = { mood: "ok", title: text(doneKey), lines: changes };
   } else {
     block = { mood: "ok", title: text("install.upToDate") };
   }
@@ -911,7 +912,7 @@ async function main() {
     } else if (subcommand === "list") {
       commandList(root, home);
     } else if (subcommand === "init" || subcommand === "add") {
-      await commandPick(root, { init: subcommand === "init", args: rest, home, install: async () => reportInstall(await installAsking(root, { home, replace }, TERMINAL), false) });
+      await commandPick(root, { init: subcommand === "init", args: rest, home, install: async () => reportInstall(await installAsking(root, { home, replace }, TERMINAL), false, subcommand === "init" ? "pick.initDone" : "pick.addDone") });
     } else {
       throw fail("errors.unknownCommand", { command: subcommand ?? "(none)" }, { exitCode: 2 });
     }

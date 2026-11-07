@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 
 import { assertRef, CATALOG_PREFIX, catalogRepo, latestRelease, readCatalog, skillDescription } from "./catalog.mjs";
 import { assertRelPath, fetchSource, insideTree } from "./git.mjs";
+import { fail, text } from "./lang.mjs";
 import { listCandidates, mergeSources, parseSelect, picksToSources, REPO_PLUGIN, REPO_SKILL } from "./lib.mjs";
 import { readRepoSkills } from "./repo-source.mjs";
 import { askInteractively } from "./prompt.mjs";
@@ -32,9 +33,6 @@ import {
 
 /** Option that prints the candidates as JSON. */
 const CANDIDATES_FLAG = "--candidates";
-
-/** Message when a repo has nothing pickable that the manifest lacks. */
-const NOTHING_NEW = "Nothing new to add.";
 
 /** Option that picks without asking. */
 const SELECT_FLAG = "--select";
@@ -57,24 +55,11 @@ const CATALOG_REF_SEPARATOR = "#";
 /** Exit code of a usage error. */
 const USAGE_EXIT = 2;
 
-/** How to use it without a TTY. */
-const USAGE = `Without an interactive terminal use ${CANDIDATES_FLAG} to see what is available, or ${SELECT_FLAG} plugin@marketplace,local-skill (plugin@marketplace:skill1+skill2 for individual skills; ${CATALOG_PREFIX}<catalog>/<skill> with ${CATALOG_FLAG}; ${REPO_FLAG} <owner/name> ${SELECT_FLAG} <plugin>[:a+b] | <skill>, with ${REF_FLAG} <ref> and ${PATH_FLAG} <dir>).`;
-
 /** Name of the skill bundled with the package, which `init` copies. */
 const BUNDLED_SKILL = "manage-skills";
 
 /** Folder of the package that holds the bundled skills. */
 const BUNDLED_SKILLS_DIR = fileURLToPath(new URL("../skills", import.meta.url));
-
-/**
- * Builds a usage error, which ends the CLI with 2.
- *
- * @param message - What was missing.
- * @returns The error with `exitCode`.
- */
-function usageError(message) {
-  return Object.assign(new Error(message), { exitCode: USAGE_EXIT });
-}
 
 /**
  * Lists the skill folders (with `SKILL.md`) of a directory.
@@ -143,7 +128,7 @@ function flagValues(args, flag) {
     } else if (arg === flag) {
       const value = args[index + 1];
       if (value === undefined || value.startsWith("--")) {
-        throw usageError(`${flag} needs a value.`);
+        throw fail("pick.flagNeedsValue", { flag }, { exitCode: USAGE_EXIT });
       }
       values.push(value);
     }
@@ -269,17 +254,17 @@ function repoOption(args, catalogs) {
   const [repos, refs, paths] = [REPO_FLAG, REF_FLAG, PATH_FLAG].map((flag) => flagValues(args, flag));
   for (const [flag, values] of [[REPO_FLAG, repos], [REF_FLAG, refs], [PATH_FLAG, paths]]) {
     if (values.length > 1) {
-      throw usageError(`${flag} goes only once.`);
+      throw fail("pick.onlyOnce", { flag }, { exitCode: USAGE_EXIT });
     }
   }
   if (repos.length === 0) {
     if (refs.length > 0 || paths.length > 0) {
-      throw usageError(`${REF_FLAG} and ${PATH_FLAG} need ${REPO_FLAG}.`);
+      throw fail("pick.needsRepo", {}, { exitCode: USAGE_EXIT });
     }
     return undefined;
   }
   if (catalogs.length > 0) {
-    throw usageError(`${REPO_FLAG} and ${CATALOG_FLAG} cannot go together.`);
+    throw fail("pick.repoWithCatalog", {}, { exitCode: USAGE_EXIT });
   }
   return { spec: repos[0], ref: refs[0], path: paths[0] };
 }
@@ -314,13 +299,13 @@ async function choose(args, candidates, options) {
   const index = args.indexOf(SELECT_FLAG);
   const value = inline?.slice(SELECT_FLAG.length + 1) ?? (index === -1 ? undefined : args[index + 1]);
   if (index !== -1 && (value === undefined || value.startsWith("--"))) {
-    throw usageError(`${SELECT_FLAG} needs a value. ${USAGE}`);
+    throw fail("pick.selectNeedsValue", { usage: text("pick.usage") }, { exitCode: USAGE_EXIT });
   }
   if (value !== undefined) {
     return parseSelect(value);
   }
   if (!process.stdin.isTTY) {
-    throw usageError(USAGE);
+    throw fail("pick.usage", {}, { exitCode: USAGE_EXIT });
   }
   return askInteractively(candidates, options);
 }
@@ -342,18 +327,18 @@ export async function commandPick(root, { init, args, home, install }) {
   const file = resolvePaths(root).manifest;
   const shown = path.relative(root, file);
   if (init && existsSync(file)) {
-    throw new Error(`${shown} already exists; use skills-manager add`);
+    throw fail("pick.exists", { file: shown });
   }
   const manifest = readManifest(root);
   if (!init && manifest === undefined) {
-    throw new Error(`No ${shown} found; start with skills-manager init`);
+    throw fail("pick.noManifest", { file: shown });
   }
   const candidates = candidatesFor(from, manifest, home);
   if (args.includes(CANDIDATES_FLAG)) {
     console.log(JSON.stringify(candidates, null, 2));
     return;
   }
-  const sources = picksToSources(await choose(args, candidates, from.repo === undefined ? {} : { empty: NOTHING_NEW }), candidates);
+  const sources = picksToSources(await choose(args, candidates, from.repo === undefined ? {} : { empty: "pick.nothingNew" }), candidates);
   const previous = existsSync(file) ? readFileSync(file, "utf8") : undefined;
   writeManifest(root, { ...manifest, sources: mergeSources(manifest?.sources ?? [], sources) });
   try {

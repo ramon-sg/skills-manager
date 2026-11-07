@@ -6,8 +6,9 @@
  * category, each with its description. At the end it shows the summary and asks for
  * confirmation. It only runs with a terminal; without one, `pick.mjs` asks for `--select`.
  */
-import { confirm, groupMultiselect, intro, isCancel, multiselect, note, outro, select } from "@clack/prompts";
+import { confirm, groupMultiselect, intro, isCancel, log, multiselect, note, outro, select } from "@clack/prompts";
 
+import { text } from "./lang.mjs";
 import { catalogMenu, keptText, menuOptions, pickSummary, REPO_PLUGIN } from "./lib.mjs";
 
 /** Answer "take all the plugin's skills". */
@@ -16,20 +17,8 @@ const ALL_SKILLS = "all";
 /** Answer "pick individual skills of the plugin". */
 const SOME_SKILLS = "some";
 
-/** Message when the machine has nothing pickable to add. */
-const NOTHING_ON_MACHINE = "Nothing installed on this machine to add.";
-
 /** List rows visible at once; the rest is reached with the arrow keys. */
 const MAX_ROWS = 10;
-
-/** Message when cancelled with Ctrl+C or Esc; the CLI prints it on exit. */
-const CANCELLED = "Cancelled; nothing changed.";
-
-/** Key help for checkbox lists (replaces the library's own help). */
-const CHECKBOX_KEYS = "(space ticks · enter continues)";
-
-/** Key help for single-choice questions. */
-const SELECT_KEYS = "(enter selects)";
 
 /** Separates the plugin name from its marketplace in an id. */
 const PLUGIN_ID_SEPARATOR = "@";
@@ -46,9 +35,27 @@ const NATURAL = new Intl.Collator("en", { numeric: true });
  */
 function orCancel(value) {
   if (isCancel(value)) {
-    throw new Error(CANCELLED);
+    throw new Error(text("prompt.cancelled"));
   }
   return value;
+}
+
+/**
+ * Asks a checkbox question that needs at least one tick. The library's own
+ * "select at least one" text is English only, so it is switched off and checked here.
+ *
+ * @param ask - `multiselect` or `groupMultiselect`.
+ * @param question - `{ message, options, ... }` for the prompt.
+ * @returns The ticked values, or the cancel symbol.
+ */
+async function askMany(ask, question) {
+  for (;;) {
+    const answer = await ask({ ...question, maxItems: MAX_ROWS, required: false, showInstructions: false });
+    if (isCancel(answer) || answer.length > 0) {
+      return answer;
+    }
+    log.warn(text("prompt.pickOne"));
+  }
 }
 
 /**
@@ -65,10 +72,10 @@ async function askSkills(candidate) {
   }
   const mode = orCancel(
     await select({
-      message: `${name}: all the skills? ${SELECT_KEYS}`,
+      message: text("prompt.allSkillsQuestion", { name, keys: text("prompt.selectKeys") }),
       options: [
-        { value: ALL_SKILLS, label: `All (${candidate.skills.length})` },
-        { value: SOME_SKILLS, label: "Pick some" },
+        { value: ALL_SKILLS, label: text("prompt.allOption", { count: candidate.skills.length }) },
+        { value: SOME_SKILLS, label: text("prompt.someOption") },
       ],
       showInstructions: false,
     }),
@@ -77,12 +84,9 @@ async function askSkills(candidate) {
     return { id: candidate.id };
   }
   const skills = orCancel(
-    await multiselect({
-      message: `Skills of ${name} ${CHECKBOX_KEYS}`,
+    await askMany(multiselect, {
+      message: text("prompt.skillsOf", { name, keys: text("prompt.checkboxKeys") }),
       options: candidate.skills.toSorted(NATURAL.compare).map((skill) => ({ value: skill })),
-      maxItems: MAX_ROWS,
-      required: true,
-      showInstructions: false,
     }),
   );
   return { id: candidate.id, skills };
@@ -97,11 +101,11 @@ async function askSkills(candidate) {
  * @throws {Error} If cancelled or not confirmed.
  */
 async function confirmPicks(picks, candidates) {
-  note(pickSummary(picks, candidates), "You are about to add");
-  if (!orCancel(await confirm({ message: "Continue?", active: "Yes", inactive: "No" }))) {
-    throw new Error(CANCELLED);
+  note(pickSummary(picks, candidates), text("prompt.summaryTitle"));
+  if (!orCancel(await confirm({ message: text("prompt.continue"), active: text("prompt.yes"), inactive: text("prompt.no") }))) {
+    throw new Error(text("prompt.cancelled"));
   }
-  outro("Installing…");
+  outro(text("prompt.installing"));
   return picks;
 }
 
@@ -114,15 +118,12 @@ async function confirmPicks(picks, candidates) {
  * @throws {Error} If cancelled or not confirmed.
  */
 async function askCatalog(candidates) {
-  intro("Skills");
+  intro(text("prompt.introCatalog"));
   const ids = orCancel(
-    await groupMultiselect({
-      message: `What do you want to add? ${CHECKBOX_KEYS}`,
+    await askMany(groupMultiselect, {
+      message: text("prompt.whatToAdd", { keys: text("prompt.checkboxKeys") }),
       options: catalogMenu(candidates),
-      maxItems: MAX_ROWS,
-      required: true,
       selectableGroups: true,
-      showInstructions: false,
     }),
   );
   return confirmPicks(ids.map((id) => ({ id })), candidates);
@@ -136,25 +137,22 @@ async function askCatalog(candidates) {
  * @returns Picks `{ id, skills? }`.
  * @throws {Error} If nothing is pickable, or it is cancelled or not confirmed.
  */
-export async function askInteractively(candidates, { empty = NOTHING_ON_MACHINE } = {}) {
+export async function askInteractively(candidates, { empty = "prompt.nothingOnMachine" } = {}) {
   if (candidates.length > 0 && candidates.every((candidate) => candidate.kind === "catalog")) {
     return askCatalog(candidates);
   }
   const { options, hidden } = menuOptions(candidates);
   if (options.length === 0) {
-    throw new Error(empty);
+    throw new Error(text(empty));
   }
-  intro("Third-party skills");
+  intro(text("prompt.introThirdParty"));
   if (hidden.length > 0) {
-    note(hidden.join("\n"), "Cannot be picked");
+    note(hidden.join("\n"), text("prompt.cannotPickTitle"));
   }
   const ids = orCancel(
-    await multiselect({
-      message: `What do you want to add? ${CHECKBOX_KEYS}`,
+    await askMany(multiselect, {
+      message: text("prompt.whatToAdd", { keys: text("prompt.checkboxKeys") }),
       options,
-      maxItems: MAX_ROWS,
-      required: true,
-      showInstructions: false,
     }),
   );
   const picks = [];
@@ -176,7 +174,7 @@ export async function askInteractively(candidates, { empty = NOTHING_ON_MACHINE 
 export async function askReplace(skills) {
   const allowed = [];
   for (const { name, keeps } of skills) {
-    const yes = orCancel(await confirm({ message: `The repo has its own "${name}" skill. Replace it with the incoming one? (its folder is deleted; ${keptText(keeps)})`, initialValue: false }));
+    const yes = orCancel(await confirm({ message: text("prompt.replaceQuestion", { name, kept: keptText(keeps) }), active: text("prompt.yes"), inactive: text("prompt.no"), initialValue: false }));
     if (!yes) {
       break;
     }

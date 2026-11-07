@@ -332,3 +332,38 @@ describe("main routing", () => {
     assert.ok(cli(["--lang", "en"]).stderr.includes(en.usage.main));
   });
 });
+
+describe("language of init and add", () => {
+  test("add --candidates is byte-identical in es and en", () => {
+    write(join(repo, "home/.claude/skills/beta/SKILL.md"), "Beta.\n");
+    const home = join(repo, "home");
+    const es1 = cli(["add", "--candidates"], { SKILLS_MANAGER_LANG: "es", SKILLS_HOME: home });
+    const en1 = cli(["add", "--candidates"], { SKILLS_MANAGER_LANG: "en", SKILLS_HOME: home });
+    assert.equal(es1.status, 0, es1.stderr);
+    assert.ok(es1.stdout.includes("beta"));
+    assert.equal(es1.stdout, en1.stdout);
+  });
+
+  test("add --select without a value is a Spanish usage error", () => {
+    const result = cli(["add", "--select"]);
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /\[!\]/);
+    assert.ok(result.stderr.includes(es.pick.selectNeedsValue({ usage: es.pick.usage() })));
+  });
+
+  test("init with a manifest already there points to add", () => {
+    const result = cli(["init"]);
+    assert.equal(result.status, 1);
+    assert.ok(result.stderr.includes("skills-manager add"));
+    assert.ok(result.stderr.includes(es.pick.exists({ file: ".agents/skills.json" })));
+  });
+
+  test("init --select without a terminal ends with the block titled initDone", () => {
+    rmSync(join(repo, ".agents"), { recursive: true });
+    write(join(repo, "home/.claude/skills/beta/SKILL.md"), "Beta.\n");
+    const result = cli(["init", "--select", "beta"], { SKILLS_HOME: join(repo, "home") });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /\[ok\]/);
+    assert.ok(result.stdout.includes(es.pick.initDone()));
+  });
+});

@@ -11,6 +11,7 @@ import { createHash } from "node:crypto";
 import { assertCatalogEntry, assertRef, CATALOG_PREFIX } from "./catalog.mjs";
 import { assertRelPath, assertSkillName } from "./git.mjs";
 import { fail, list, text } from "./lang.mjs";
+import { OTHER_REPO_NOTE } from "./repo-source.mjs";
 
 /** Keys that identify the origin of a manifest source; only one per entry. */
 const SOURCE_KINDS = ["plugin", "repo", "local", "catalog"];
@@ -350,6 +351,22 @@ function shortName(id) {
 }
 
 /**
+ * Translates the notes of candidates that cannot be picked; any other note is returned as is.
+ * The notes inside the candidates stay in English so `--candidates` does not depend on the language.
+ *
+ * @param note - A candidate's `note`.
+ * @returns The note in the current language.
+ */
+export function noteText(note) {
+  const marketplace = /^could not read marketplace (.+)$/.exec(note)?.[1];
+  if (marketplace !== undefined) {
+    return text("pick.note.unreadableMarketplace", { marketplace });
+  }
+  const keys = { "not on disk": "pick.note.notOnDisk", "no skills": "pick.note.noSkills", [OTHER_REPO_NOTE]: "pick.note.otherRepo" };
+  return keys[note] === undefined ? note : text(keys[note]);
+}
+
+/**
  * Builds the options of the interactive menu: one short line per pickable
  * candidate (name and how many skills it brings, or the description of a repo
  * skill, all in the label so it shows on every row and not only on the
@@ -372,7 +389,7 @@ export function menuOptions(candidates) {
     const name = shortName(candidate.id);
     const label = repeated.has(name) ? `${name} (${candidate.id.split(PLUGIN_ID_SEPARATOR)[1]})` : name;
     if (candidate.note !== undefined) {
-      hidden.push(`${label} (${candidate.note})`);
+      hidden.push(`${label} (${noteText(candidate.note)})`);
       continue;
     }
     if (candidate.kind === REPO_SKILL) {
@@ -380,7 +397,7 @@ export function menuOptions(candidates) {
       continue;
     }
     const count = candidate.skills.length;
-    const detail = candidate.kind === "local" ? "yours" : `${count} ${count === 1 ? "skill" : "skills"}`;
+    const detail = candidate.kind === "local" ? text("pick.yours") : text(count === 1 ? "pick.skillOne" : "pick.skillMany", { count });
     options.push({ value: candidate.id, label: `${label} · ${detail}` });
   }
   return { options, hidden };
@@ -430,12 +447,12 @@ export function pickSummary(picks, candidates) {
         return `${name} · ${candidate.repo}`;
       }
       if (candidate?.kind === "local") {
-        return `${name} (yours)`;
+        return `${name} (${text("pick.yours")})`;
       }
       if (pick.skills?.length > 0) {
         return `${name}: ${pick.skills.join(", ")}`;
       }
-      return `${name} (all, ${candidate?.skills.length ?? 0})`;
+      return `${name} ${text("pick.all", { count: candidate?.skills.length ?? 0 })}`;
     })
     .join("\n");
 }
@@ -480,7 +497,7 @@ export function picksToSources(picks, candidates) {
       throw fail("errors.source.notCandidate", { id: pick.id });
     }
     if (candidate.note !== undefined) {
-      throw fail("errors.source.cannotPick", { id: pick.id, note: candidate.note });
+      throw fail("errors.source.cannotPick", { id: pick.id, note: noteText(candidate.note) });
     }
     const unknown = (pick.skills ?? []).filter((skill) => !candidate.skills.includes(skill));
     if (unknown.length > 0) {

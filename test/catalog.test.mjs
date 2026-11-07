@@ -660,7 +660,7 @@ describe("own skills with the name of an incoming one", () => {
     const result = cli(["install"]);
 
     assert.equal(result.status, 1);
-    assert.match(result.output, /"code-audit" .* already exists as an own skill/);
+    assert.match(result.output, /"code-audit" .* already exists as the repo's own skill/);
     assert.match(result.output, /--replace code-audit/);
     assert.equal(installed("code-audit"), "the repo's own audit\n");
     assert.equal(existsSync(join(repo, LOCK)), false);
@@ -685,7 +685,7 @@ describe("own skills with the name of an incoming one", () => {
     const result = cli(["install", "--replace=planning"]);
 
     assert.equal(result.status, 1);
-    assert.match(result.output, /--replace code-audit; replacing deletes each own folder: code-audit \(keeps project\.md\)/);
+    assert.match(result.output, /--replace code-audit; replacing deletes the folder of each own skill: code-audit \(keeps project\.md\)/);
     assert.equal(installed("code-audit"), "the repo's own audit\n");
   });
 
@@ -709,7 +709,7 @@ describe("own skills with the name of an incoming one", () => {
     const result = cli(["install", "--replace", "code-audit"]);
 
     assert.equal(result.status, 1);
-    assert.match(result.output, /--replace code-audit,planning; replacing deletes each own folder: planning \(nothing in its folder is kept\)/);
+    assert.match(result.output, /--replace code-audit,planning; replacing deletes the folder of each own skill: planning \(nothing in its folder is kept\)/);
   });
 
   test("a clash between two catalogs is not offered as a replace, even with an own skill too", () => {

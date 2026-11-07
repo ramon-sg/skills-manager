@@ -8,7 +8,7 @@
  */
 import { confirm, groupMultiselect, intro, isCancel, log, multiselect, note, outro, select } from "@clack/prompts";
 
-import { text } from "./lang.mjs";
+import { fail, text } from "./lang.mjs";
 import { catalogMenu, keptText, menuOptions, pickSummary, REPO_PLUGIN } from "./lib.mjs";
 
 /** Answer "take all the plugin's skills". */
@@ -35,7 +35,7 @@ const NATURAL = new Intl.Collator("en", { numeric: true });
  */
 function orCancel(value) {
   if (isCancel(value)) {
-    throw new Error(text("prompt.cancelled"));
+    throw fail("prompt.cancelled");
   }
   return value;
 }
@@ -103,7 +103,7 @@ async function askSkills(candidate) {
 async function confirmPicks(picks, candidates) {
   note(pickSummary(picks, candidates), text("prompt.summaryTitle"));
   if (!orCancel(await confirm({ message: text("prompt.continue"), active: text("prompt.yes"), inactive: text("prompt.no") }))) {
-    throw new Error(text("prompt.cancelled"));
+    throw fail("prompt.cancelled");
   }
   outro(text("prompt.installing"));
   return picks;
@@ -143,7 +143,7 @@ export async function askInteractively(candidates, { empty = "prompt.nothingOnMa
   }
   const { options, hidden } = menuOptions(candidates);
   if (options.length === 0) {
-    throw new Error(text(empty));
+    throw fail(empty);
   }
   intro(text("prompt.introThirdParty"));
   if (hidden.length > 0) {

@@ -674,7 +674,10 @@ describe("init and add", () => {
     assert.equal(cli(["add", "--select", "my-skill"]).status, 0);
     rmSync(join(repo, ".agents/skills/my-skill"), { recursive: true });
     assert.equal(cli(["check"]).status, 1);
-    assert.equal(cli(["install"]).status, 0);
+    const restored = cli(["install"]);
+    assert.equal(restored.status, 0);
+    assert.match(restored.output, /Done: the changes were applied/);
+    assert.doesNotMatch(restored.output, /up to date/);
     assert.equal(read(".agents/skills/my-skill/SKILL.md"), "Mine.\n");
     write(join(repo, ".agents/skills/my-skill/SKILL.md"), "edited\n");
     write(join(home, ".claude/skills/my-skill/SKILL.md"), "Mine 2.\n");
@@ -683,6 +686,9 @@ describe("init and add", () => {
     assert.match(dry.output, /my-skill: edited by hand, will be overwritten/);
     const result = cli(["update", "my-skill"]);
     assert.equal(result.status, 0, result.output);
+    assert.match(result.output, /Done: the changes were applied/);
+    assert.match(result.output, /my-skill: edited by hand, will be overwritten/);
+    assert.doesNotMatch(result.output, /up to date/);
     assert.equal(read(".agents/skills/my-skill/SKILL.md"), "Mine 2.\n");
   });
 

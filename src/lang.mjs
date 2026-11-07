@@ -113,10 +113,11 @@ function failEs(key, params) {
  * Joins names as a list in the active language.
  *
  * @param items - The names.
+ * @param type - `conjunction` (a, b y c) or `disjunction` (a, b o c).
  * @returns For example `a, b y c`.
  */
-export function list(items) {
-  return new Intl.ListFormat(current, { type: "conjunction" }).format(items);
+export function list(items, type = "conjunction") {
+  return new Intl.ListFormat(current, { type }).format(items);
 }
 
 /**

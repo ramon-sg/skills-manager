@@ -112,7 +112,7 @@ export function parseManifest(text, file = "skills.json") {
   for (const entry of manifest.sources) {
     const kinds = SOURCE_KINDS.filter((kind) => entry?.[kind] !== undefined);
     if (kinds.length !== 1) {
-      throw fail("errors.manifest.sourceKind", { kinds: list(SOURCE_KINDS), entry: JSON.stringify(entry) });
+      throw fail("errors.manifest.sourceKind", { kinds: list(SOURCE_KINDS, "disjunction"), entry: JSON.stringify(entry) });
     }
     if (kinds[0] === "catalog") {
       assertCatalogEntry(entry);

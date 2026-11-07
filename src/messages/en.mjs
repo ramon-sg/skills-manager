@@ -109,7 +109,7 @@ export const en = {
     allSkillsQuestion: ({ name, keys }) => `${name}: all the skills? ${keys}`,
     allOption: ({ count }) => `All (${count})`,
     someOption: () => "Pick some",
-    skillsOf: ({ name, keys }) => `Skills of ${name} ${keys}`,
+    skillsOf: ({ name, keys }) => `${name} skills ${keys}`,
     summaryTitle: () => "You are about to add",
     continue: () => "Continue?",
     installing: () => "Installing…",
@@ -149,7 +149,7 @@ export const en = {
     edited: ({ name, dir }) =>
       `"${name}" was edited by hand\nTo go back to the lock version: rm -rf ${dir} && skills-manager install\nTo overwrite it with the latest published: skills-manager update ${name}`,
     ownHint: ({ names, each }) =>
-      `Run it in a terminal to be asked, or again with --replace ${names}; replacing deletes each own folder: ${each}.`,
+      `Run it in a terminal to be asked, or again with --replace ${names}; replacing deletes the folder of each own skill: ${each}.`,
     change: {
       removed: ({ name }) => `${name}: will be removed`,
       added: ({ name, label }) => `${name}: new (${label})`,
@@ -162,8 +162,8 @@ export const en = {
   },
   collisions: {
     ownCatalog: ({ name, origins }) =>
-      `"${name}" (from ${origins}) already exists as an own skill: remove the own folder or drop "${name}" (and what requires it) from the catalog source`,
-    ownManifest: ({ name, origins }) => `"${name}" (from ${origins}) already exists as an own skill: exclude "${name}" in the manifest`,
+      `"${name}" (from ${origins}) already exists as the repo's own skill: remove the own skill folder or drop "${name}" (and what requires it) from the catalog source`,
+    ownManifest: ({ name, origins }) => `"${name}" (from ${origins}) already exists as the repo's own skill: exclude "${name}" in the manifest`,
     acrossCatalogs: ({ name, origins }) => `"${name}" comes from ${origins}: keep "${name}" (and what requires it) in only one of those catalog sources`,
     acrossManifest: ({ name, origins }) => `"${name}" comes from ${origins}: exclude "${name}" in the manifest of one of the origins`,
   },
@@ -191,8 +191,8 @@ Commands:
   init                          pick from what is installed on the machine and install it
   add                           same as init, but to add to what you already have
 
-Options of init and add:
-  --replace <names>             allow replacing the repo's own skills with those names (required without a terminal)
+Options for init and add:
+  --replace <names>             allow replacing the repo's own skills with those names (required without a terminal; also works with install and update)
   --catalog <repo>              also pick from that catalog
   --repo <owner/name>           pick from a GitHub repo
   --ref <ref>                   branch, tag or commit of the repo (with --repo)
@@ -202,7 +202,7 @@ Options of init and add:
 
 General options:
   --lang es|en                  language of the messages (default es)
-  --help                        show this help
+  --help, -h, help              show this help
 
 Environment variables:
   SKILLS_MANAGER_LANG           default language (es or en); --lang wins`,

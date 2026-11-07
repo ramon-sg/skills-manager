@@ -524,7 +524,7 @@ export function installAll(root, { home, update, dryRun = false, replace = new S
     fetchPlans(plans, temp, context);
     assertNoCollisions(paths, plans, lock, replace);
     const changes = describeChanges(paths, plans, stale, lock, replace);
-    return { ...(dryRun ? { changed: false } : writeAll(paths, { plans, stale, lock, manifest })), changes };
+    return { ...(dryRun ? { changed: false, wrote: false } : writeAll(paths, { plans, stale, lock, manifest })), changes };
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
@@ -590,11 +590,13 @@ function leavingNames(plan, plans) {
  *
  * @param paths - Paths from `resolvePaths`.
  * @param state - `{ plans, stale, lock, manifest }`.
- * @returns `{ changed }`: whether the lock was written.
+ * @returns `{ changed, wrote }`: whether the lock was written, and whether any skill folder was created, rewritten with other content, or deleted.
  */
 function writeAll(paths, { plans, stale, lock, manifest }) {
   const skills = { ...lock.skills };
+  let wrote = false;
   const remove = (name) => {
+    wrote ||= existsSync(path.join(paths.skillsDir, name));
     rmSync(path.join(paths.skillsDir, name), { recursive: true, force: true });
     delete skills[name];
   };
@@ -605,6 +607,8 @@ function writeAll(paths, { plans, stale, lock, manifest }) {
     for (const skill of plan.skills) {
       const dir = path.join(paths.skillsDir, skill.name);
       const editable = readEditable(dir, skill);
+      const entry = lockEntry(plan, skill);
+      wrote ||= installedHash(paths, skill.name, entry.editable) !== entry.hash;
       rmSync(dir, { recursive: true, force: true });
       for (const file of [...skill.files, ...editable]) {
         mkdirSync(path.dirname(path.join(dir, file.path)), { recursive: true });
@@ -613,18 +617,18 @@ function writeAll(paths, { plans, stale, lock, manifest }) {
           chmodSync(path.join(dir, file.path), EXECUTABLE_MODE);
         }
       }
-      skills[skill.name] = lockEntry(plan, skill);
+      skills[skill.name] = entry;
     }
   }
   const sorted = Object.fromEntries(Object.keys(skills).sort().map((name) => [name, skills[name]]));
-  const text = `${JSON.stringify({ lockVersion: lockVersionFor(sorted), skills: sorted, plugins: manifestPlugins(manifest) }, null, 2)}\n`;
+  const lockText = `${JSON.stringify({ lockVersion: lockVersionFor(sorted), skills: sorted, plugins: manifestPlugins(manifest) }, null, 2)}\n`;
   syncProjectSettings(paths, lock.plugins, manifestPlugins(manifest));
   const file = paths.lock;
-  if (existsSync(file) && readFileSync(file, "utf8") === text) {
-    return { changed: false };
+  if (existsSync(file) && readFileSync(file, "utf8") === lockText) {
+    return { changed: false, wrote };
   }
-  writeFileSync(file, text);
-  return { changed: true };
+  writeFileSync(file, lockText);
+  return { changed: true, wrote };
 }
 
 /**
@@ -856,13 +860,13 @@ function firstCommand(argv) {
  * @param doneKey - Message key of the title when something changed.
  */
 function reportInstall(result, dryRun, doneKey = "install.done") {
-  const { changed, changes, noManifest, file } = result;
+  const { changed, wrote, changes, noManifest, file } = result;
   let block;
   if (noManifest === true) {
     block = { mood: "question", title: text("install.noManifest", { file }), next: { label: text("next.start"), command: "skills-manager init" } };
   } else if (dryRun && changes.length > 0) {
     block = { mood: "question", title: text("install.dryRun"), lines: changes };
-  } else if (!dryRun && changed) {
+  } else if (!dryRun && (changed || wrote === true || changes.length > 0)) {
     block = { mood: "ok", title: text(doneKey), lines: changes };
   } else {
     block = { mood: "ok", title: text("install.upToDate") };
@@ -914,7 +918,7 @@ async function main() {
     } else if (subcommand === "init" || subcommand === "add") {
       await commandPick(root, { init: subcommand === "init", args: rest, home, install: () => installAsking(root, { home, replace }, TERMINAL), report: (result) => reportInstall(result, false, subcommand === "init" ? "pick.initDone" : "pick.addDone") });
     } else {
-      throw fail("errors.unknownCommand", { command: subcommand ?? "(none)" }, { exitCode: 2 });
+      throw fail("errors.unknownCommand", { command: subcommand }, { exitCode: 2 });
     }
   } catch (error) {
     printError(error);

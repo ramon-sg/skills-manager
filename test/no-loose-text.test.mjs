@@ -11,8 +11,11 @@ import { fileURLToPath } from "node:url";
 /** The `src` folder. */
 const SRC = join(fileURLToPath(new URL("..", import.meta.url)), "src");
 
-/** Calls that must not take a literal; `console.log(JSON.stringify(` is not matched. */
-const LOOSE = /\b(new Error\(|usageError\(|console\.(?:log|error)\()\s*["'`]/;
+/** Console calls that must not take a literal; `console.log(JSON.stringify(` is not matched. */
+const LOOSE = /\bconsole\.(?:log|error)\(\s*["'`]/;
+
+/** Any `new Error(`: errors are built with `fail()`; only `src/lang.mjs` may use it. */
+const NEW_ERROR = /\bnew Error\(/;
 
 /**
  * Lists the `.mjs` files under a folder, skipping `src/messages`.
@@ -36,7 +39,7 @@ test("no error or console output is built from a literal outside src/messages", 
     readFileSync(file, "utf8")
       .split("\n")
       .forEach((line, index) => {
-        if (LOOSE.test(line)) {
+        if (LOOSE.test(line) || (NEW_ERROR.test(line) && relative(SRC, file) !== "lang.mjs")) {
           found.push(`${relative(SRC, file).split(sep).join("/")}:${index + 1}: ${line.trim()}`);
         }
       });

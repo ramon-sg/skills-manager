@@ -45,7 +45,7 @@ export const es = {
       badJson: ({ file }) => `${file} no es un JSON válido.`,
       unknownKey: ({ key, allowed }) => `Clave desconocida "${key}" en un origen de catálogo; permitidas: ${allowed}`,
       needsSkills: ({ catalog }) => `El origen de catálogo ${catalog} necesita una lista "skills" que no esté vacía.`,
-      badRef: ({ repo }) => `"ref" de ${repo} debe ser el nombre de una rama o una etiqueta.`,
+      badRef: ({ repo }) => `"ref" de ${repo} debe ser el nombre de una rama o un tag.`,
       skillNotObject: ({ file, skill }) => `Cada skill de ${file} debe ser un objeto: ${skill}`,
       requiresNotList: ({ name }) => `"requires" de ${name} debe ser una lista.`,
       editableNotList: ({ name }) => `"editable" de ${name} debe ser una lista.`,
@@ -78,7 +78,7 @@ export const es = {
     skillMany: ({ count }) => `${count} skills`,
     all: ({ count }) => `(todas, ${count})`,
     usage: () =>
-      "Sin una terminal interactiva usa --candidates para ver qué hay disponible, o --select plugin@marketplace,skill-local (plugin@marketplace:skill1+skill2 para skills sueltas; catalog:<catálogo>/<skill> con --catalog; --repo <owner/name> --select <plugin>[:a+b] | <skill>, con --ref <ref> y --path <carpeta>).",
+      "Sin una terminal interactiva usa --candidates para ver qué hay disponible, o --select plugin@marketplace,skill-local (plugin@marketplace:skill1+skill2 para skills sueltas; catalog:<catálogo>/<skill> con --catalog; --repo <dueño/nombre> --select <plugin>[:a+b] | <skill>, con --ref <ref> y --path <carpeta>).",
     selectNeedsValue: ({ usage }) => `--select necesita un valor. ${usage}`,
     flagNeedsValue: ({ flag }) => `${flag} necesita un valor.`,
     onlyOnce: ({ flag }) => `${flag} va una sola vez.`,
@@ -164,9 +164,9 @@ export const es = {
   },
   collisions: {
     ownCatalog: ({ name, origins }) =>
-      `"${name}" (de ${origins}) ya existe como skill propia: elimina la carpeta propia o quita "${name}" (y lo que lo requiere) del origen de catálogo`,
+      `"${name}" (de ${origins}) ya existe como skill propia: elimina la carpeta propia o quita "${name}" (y lo que la requiere) del origen de catálogo`,
     ownManifest: ({ name, origins }) => `"${name}" (de ${origins}) ya existe como skill propia: excluye "${name}" en el manifiesto`,
-    acrossCatalogs: ({ name, origins }) => `"${name}" viene de ${origins}: deja "${name}" (y lo que lo requiere) en un solo origen de catálogo`,
+    acrossCatalogs: ({ name, origins }) => `"${name}" viene de ${origins}: deja "${name}" (y lo que la requiere) en un solo origen de catálogo`,
     acrossManifest: ({ name, origins }) => `"${name}" viene de ${origins}: excluye "${name}" en el manifiesto de uno de los orígenes`,
   },
   kept: {
@@ -186,25 +186,25 @@ export const es = {
 
 Comandos:
   install                       deja el disco y el lock como dice el manifiesto
-  update [name] [--dry-run]     pasa a la última versión publicada; --dry-run solo muestra qué cambiaría
+  update [nombre] [--dry-run]   pasa a la última versión publicada; --dry-run solo muestra qué cambiaría
   check                         falla si el disco, el lock y el manifiesto no coinciden
   list                          muestra lo que hay en el lock, con origen, versión y si hay una más nueva
   session-notice                imprime las skills del inicio de sesión para un hook SessionStart; nunca falla
   init                          elige entre lo que hay instalado en la máquina y lo instala
-  add                           igual que init, pero para agregar a lo que ya tienes
+  add                           igual que init, pero para añadir a lo que ya tienes
 
 Opciones de init y add:
-  --replace <names>             permite reemplazar skills propias con esos nombres (sin terminal, es obligatorio)
+  --replace <nombres>           permite reemplazar skills propias con esos nombres (sin terminal, es obligatorio; también con install y update)
   --catalog <repo>              elige también de ese catálogo
-  --repo <owner/name>           elige de un repo de GitHub
+  --repo <dueño/nombre>         elige de un repo de GitHub
   --ref <ref>                   rama, tag o commit del repo (con --repo)
-  --path <dir>                  carpeta del repo donde está el marketplace (con --repo)
+  --path <carpeta>              carpeta del repo donde está el marketplace (con --repo)
   --candidates                  lista lo disponible como JSON, sin instalar
   --select <ids>                elige sin preguntar, por ejemplo plugin@marketplace,skill-local
 
 Opciones generales:
   --lang es|en                  idioma de los mensajes (por defecto es)
-  --help                        muestra esta ayuda
+  --help, -h, help              muestra esta ayuda
 
 Variables de entorno:
   SKILLS_MANAGER_LANG           idioma por defecto (es o en); --lang gana`,

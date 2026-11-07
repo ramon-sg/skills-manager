@@ -31,9 +31,9 @@ const NATURAL = new Intl.Collator("en", { numeric: true });
  *
  * @param value - What the prompt returned.
  * @returns The same value, if not cancelled.
- * @throws {Error} If cancelled.
+ * @throws {Error} `prompt.cancelled` if cancelled (Ctrl+C or Esc).
  */
-function orCancel(value) {
+export function orCancel(value) {
   if (isCancel(value)) {
     throw fail("prompt.cancelled");
   }

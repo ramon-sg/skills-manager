@@ -14,8 +14,9 @@ All notable changes to this project are documented here. The format follows
 - `--help` (and `-h`) prints every command, flag and the language options, and each
   command ends with a closing block next to Kuro, the mascot. The block only shows
   in a terminal and honors `NO_COLOR`.
-- A manifest, lock or `catalog.json` that is not valid JSON now fails with a message
-  that names the file, followed by the parser's own message.
+- A JSON file that is not valid (manifest, lock, `catalog.json`, `.claude/settings.json`,
+  `installed_plugins.json`) now fails with a message that names the file, followed by
+  the parser's own message.
 
 ### Changed
 
@@ -23,6 +24,9 @@ All notable changes to this project are documented here. The format follows
   `[ok]`/`[!]` closing block. Scripts that read the terminal text should set
   `SKILLS_MANAGER_LANG=en`. `--candidates` is unchanged: it still prints the same JSON.
 - `init` prints its closing block only after the bundled skill has been copied.
+- The change lines of `install` and `update` say what was done ("removed",
+  "overwritten") after a write, and what would happen ("would be removed") with
+  `--dry-run`, instead of always using the future tense.
 
 ## 1.3.0
 

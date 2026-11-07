@@ -540,7 +540,7 @@ describe("update --dry-run", () => {
     const result = cli(["update", "--dry-run"]);
     assert.equal(result.status, 0, result.output);
     assert.match(result.output, /gamma: new/);
-    assert.match(result.output, /beta: will be removed/);
+    assert.match(result.output, /beta: would be removed/);
     assert.equal(read(LOCK), lockBefore);
     assert.equal(existsSync(join(repo, ".agents/skills/gamma")), false);
     assert.equal(existsSync(join(repo, ".agents/skills/beta")), true);
@@ -551,7 +551,7 @@ describe("update --dry-run", () => {
     write(join(repo, ".agents/skills/alpha/SKILL.md"), "edited\n");
     const result = cli(["update", "--dry-run"]);
     assert.equal(result.status, 0, result.output);
-    assert.match(result.output, /alpha: edited by hand, will be overwritten/);
+    assert.match(result.output, /alpha: edited by hand, would be overwritten/);
     assert.doesNotMatch(result.output, /beta: edited by hand/);
     assert.equal(read(".agents/skills/alpha/SKILL.md"), "edited\n");
   });
@@ -683,11 +683,11 @@ describe("init and add", () => {
     write(join(home, ".claude/skills/my-skill/SKILL.md"), "Mine 2.\n");
     const dry = cli(["update", "my-skill", "--dry-run"]);
     assert.equal(dry.status, 0, dry.output);
-    assert.match(dry.output, /my-skill: edited by hand, will be overwritten/);
+    assert.match(dry.output, /my-skill: edited by hand, would be overwritten/);
     const result = cli(["update", "my-skill"]);
     assert.equal(result.status, 0, result.output);
     assert.match(result.output, /Done: the changes were applied/);
-    assert.match(result.output, /my-skill: edited by hand, will be overwritten/);
+    assert.match(result.output, /my-skill: edited by hand, overwritten/);
     assert.doesNotMatch(result.output, /up to date/);
     assert.equal(read(".agents/skills/my-skill/SKILL.md"), "Mine 2.\n");
   });

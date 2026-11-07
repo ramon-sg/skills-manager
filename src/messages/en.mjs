@@ -12,6 +12,9 @@ export const en = {
     unexpected: () => "Something went wrong",
     unknownMessageKey: ({ key }) => `Unknown message key: ${key}`,
     unknownCommand: ({ command }) => `Unknown subcommand: ${command}; use install, update, check, list, session-notice, init or add`,
+    json: {
+      bad: ({ file }) => `${file} is not valid JSON.`,
+    },
     manifest: {
       badJson: ({ file }) => `${file} is not valid JSON.`,
       pathsNotObject: () => '"paths" must be an object.',
@@ -151,13 +154,22 @@ export const en = {
     ownHint: ({ names, each }) =>
       `Run it in a terminal to be asked, or again with --replace ${names}; replacing deletes the folder of each own skill: ${each}.`,
     change: {
-      removed: ({ name }) => `${name}: will be removed`,
+      removed: ({ name }) => `${name}: removed`,
       added: ({ name, label }) => `${name}: new (${label})`,
-      addedReplacing: ({ name, label }) => `${name}: new (${label}), replaces the repo's own folder`,
+      addedReplacing: ({ name, label }) => `${name}: new (${label}), replaced the repo's own folder`,
       moved: ({ name, from, to }) => `${name}: ${from} → ${to}`,
-      overwritten: ({ name }) => `${name}: edited by hand, will be overwritten`,
-      editableReplaced: ({ name, rel }) => `${name}: ${rel} is no longer editable; the repo's copy will be replaced by the skill's`,
-      editableRemoved: ({ name, rel }) => `${name}: ${rel} is no longer editable; the repo's copy will be removed`,
+      overwritten: ({ name }) => `${name}: edited by hand, overwritten`,
+      editableReplaced: ({ name, rel }) => `${name}: ${rel} is no longer editable; the repo's copy was replaced by the skill's`,
+      editableRemoved: ({ name, rel }) => `${name}: ${rel} is no longer editable; the repo's copy was removed`,
+    },
+    planned: {
+      removed: ({ name }) => `${name}: would be removed`,
+      added: ({ name, label }) => `${name}: new (${label})`,
+      addedReplacing: ({ name, label }) => `${name}: new (${label}), would replace the repo's own folder`,
+      moved: ({ name, from, to }) => `${name}: ${from} → ${to}`,
+      overwritten: ({ name }) => `${name}: edited by hand, would be overwritten`,
+      editableReplaced: ({ name, rel }) => `${name}: ${rel} is no longer editable; the repo's copy would be replaced by the skill's`,
+      editableRemoved: ({ name, rel }) => `${name}: ${rel} is no longer editable; the repo's copy would be removed`,
     },
   },
   collisions: {

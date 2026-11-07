@@ -294,7 +294,7 @@ describe("catalog sources that share names", () => {
     const result = cli(["install"]);
 
     assert.equal(result.status, 0, result.output);
-    assert.doesNotMatch(result.output, /code-audit: will be removed/);
+    assert.doesNotMatch(result.output, /code-audit: (would be )?removed/);
     assert.match(installed("code-audit"), /other audit/);
     assert.equal(lock().skills["code-audit"].source, `catalog:file://${other}`);
     assert.equal(cli(["check"]).status, 0);
@@ -551,7 +551,7 @@ describe("editable files", () => {
     assert.notEqual(statSync(auditFile("setup.sh")).mode & 0o111, 0);
   });
 
-  test("a new version that ships the file as a normal one warns that the repo's copy will be replaced", () => {
+  test("a new version that ships the file as a normal one warns that the repo's copy would be replaced", () => {
     publishEditable("Conventions: none yet.\n", "v1.0.0");
     setSources([{ catalog: `file://${origin}`, skills: ["code-audit"] }]);
     assert.equal(cli(["install"]).status, 0);
@@ -562,7 +562,7 @@ describe("editable files", () => {
     const result = cli(["update", "--dry-run"]);
 
     assert.equal(result.status, 0, result.output);
-    assert.match(result.output, /code-audit: project\.md is no longer editable; the repo's copy will be replaced by the skill's/);
+    assert.match(result.output, /code-audit: project\.md is no longer editable; the repo's copy would be replaced by the skill's/);
   });
 
   test("editing it does not make check or install fail", () => {
@@ -621,7 +621,7 @@ describe("editable files", () => {
 
     assert.equal(result.status, 0, result.output);
     assert.equal(withEditable, 2);
-    assert.match(result.output, /code-audit: project\.md is no longer editable; the repo's copy will be removed/);
+    assert.match(result.output, /code-audit: project\.md is no longer editable; the repo's copy was removed/);
     assert.equal(lock().lockVersion, 1);
     assert.equal(lock().skills["code-audit"].editable, undefined);
     assert.equal(existsSync(auditFile("project.md")), false);
@@ -695,7 +695,7 @@ describe("own skills with the name of an incoming one", () => {
     const result = cli(["update", "--dry-run"]);
 
     assert.equal(result.status, 0, result.output);
-    assert.match(result.output, /code-audit: new \(v1\.0\.0 [0-9a-f]+\), replaces the repo's own folder/);
+    assert.match(result.output, /code-audit: new \(v1\.0\.0 [0-9a-f]+\), would replace the repo's own folder/);
     assert.equal(installed("code-audit"), "the repo's own audit\n");
   });
 

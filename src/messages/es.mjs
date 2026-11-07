@@ -14,6 +14,9 @@ export const es = {
     unexpected: () => "Algo salió mal",
     unknownMessageKey: ({ key }) => `Clave de mensaje desconocida: ${key}`,
     unknownCommand: ({ command }) => `Comando desconocido: ${command}; usa install, update, check, list, session-notice, init o add`,
+    json: {
+      bad: ({ file }) => `${file} no es un JSON válido.`,
+    },
     manifest: {
       badJson: ({ file }) => `${file} no es un JSON válido.`,
       pathsNotObject: () => '"paths" debe ser un objeto.',
@@ -153,13 +156,22 @@ export const es = {
     ownHint: ({ names, each }) =>
       `Ejecútalo en una terminal para que te pregunte, o de nuevo con --replace ${names}; reemplazar borra cada carpeta de skill propia: ${each}.`,
     change: {
-      removed: ({ name }) => `${name}: se eliminará`,
+      removed: ({ name }) => `${name}: se eliminó`,
       added: ({ name, label }) => `${name}: nueva (${label})`,
-      addedReplacing: ({ name, label }) => `${name}: nueva (${label}), reemplaza la carpeta de la skill propia`,
+      addedReplacing: ({ name, label }) => `${name}: nueva (${label}), reemplazó la carpeta de la skill propia`,
       moved: ({ name, from, to }) => `${name}: ${from} → ${to}`,
-      overwritten: ({ name }) => `${name}: editada a mano, se sobrescribirá`,
-      editableReplaced: ({ name, rel }) => `${name}: ${rel} ya no es editable; la copia del repo se reemplazará por la de la skill`,
-      editableRemoved: ({ name, rel }) => `${name}: ${rel} ya no es editable; la copia del repo se eliminará`,
+      overwritten: ({ name }) => `${name}: editada a mano, se sobrescribió`,
+      editableReplaced: ({ name, rel }) => `${name}: ${rel} ya no es editable; la copia del repo se reemplazó por la de la skill`,
+      editableRemoved: ({ name, rel }) => `${name}: ${rel} ya no es editable; la copia del repo se eliminó`,
+    },
+    planned: {
+      removed: ({ name }) => `${name}: se eliminaría`,
+      added: ({ name, label }) => `${name}: nueva (${label})`,
+      addedReplacing: ({ name, label }) => `${name}: nueva (${label}), reemplazaría la carpeta de la skill propia`,
+      moved: ({ name, from, to }) => `${name}: ${from} → ${to}`,
+      overwritten: ({ name }) => `${name}: editada a mano, se sobrescribiría`,
+      editableReplaced: ({ name, rel }) => `${name}: ${rel} ya no es editable; la copia del repo se reemplazaría por la de la skill`,
+      editableRemoved: ({ name, rel }) => `${name}: ${rel} ya no es editable; la copia del repo se eliminaría`,
     },
   },
   collisions: {

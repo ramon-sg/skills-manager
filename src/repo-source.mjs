@@ -134,7 +134,7 @@ function readMarketplace(tree) {
   try {
     data = readJson(file);
   } catch (error) {
-    throw fail("errors.repo.invalidJson", { file: MARKETPLACE_FILE, detail: error.message });
+    throw fail("errors.repo.invalidJson", { file: MARKETPLACE_FILE, detail: error.params?.detail ?? error.message });
   }
   if (!Array.isArray(data?.plugins)) {
     return [];

@@ -218,7 +218,7 @@ function assertUntouched(paths, lock, names) {
 function versionOf(dir) {
   for (const file of [".claude-plugin/plugin.json", "package.json"]) {
     const full = path.join(dir, file);
-    const version = isRegularFile(full) ? readJson(full).version : undefined;
+    const version = isRegularFile(full) ? readJson(full, file).version : undefined;
     if (version !== undefined) {
       return version;
     }
@@ -356,16 +356,17 @@ function planSource(entry, context) {
  * @param paths - Paths from `resolvePaths`.
  * @param lock - Previous lock.
  * @param skill - Built skill of the new version.
- * @returns One line per file that will be removed or replaced.
+ * @param area - Catalog area of the lines: `install.change` (done) or `install.planned` (dry run).
+ * @returns One line per file that is removed or replaced.
  */
-function droppedEditable(paths, lock, skill) {
+function droppedEditable(paths, lock, skill, area) {
   const before = lock.skills[skill.name]?.editable ?? [];
   const now = skill.editable ?? [];
   return before
     .filter((rel) => !now.includes(rel) && isRegularFile(path.join(paths.skillsDir, skill.name, assertRelPath(rel))))
     .map((rel) => {
-      const key = skill.files.some((file) => file.path === rel) ? "install.change.editableReplaced" : "install.change.editableRemoved";
-      return text(key, { name: skill.name, rel });
+      const kind = skill.files.some((file) => file.path === rel) ? "editableReplaced" : "editableRemoved";
+      return text(`${area}.${kind}`, { name: skill.name, rel });
     });
 }
 
@@ -378,12 +379,14 @@ function droppedEditable(paths, lock, skill) {
  * @param stale - Lock skills whose source is no longer in the manifest.
  * @param lock - Previous lock.
  * @param replace - Own skills that will be replaced.
+ * @param dryRun - Whether nothing gets written: the lines then say what would happen.
  * @returns One line per change.
  */
-function describeChanges(paths, plans, stale, lock, replace) {
-  const lines = stale.map((name) => text("install.change.removed", { name }));
+function describeChanges(paths, plans, stale, lock, replace, dryRun) {
+  const area = dryRun ? "install.planned" : "install.change";
+  const lines = stale.map((name) => text(`${area}.removed`, { name }));
   for (const plan of plans.filter((candidate) => candidate.skills !== undefined)) {
-    lines.push(...leavingNames(plan, plans).map((name) => text("install.change.removed", { name })));
+    lines.push(...leavingNames(plan, plans).map((name) => text(`${area}.removed`, { name })));
     for (const skill of plan.skills) {
       const { name, commit = plan.commit, tag } = skill;
       const label = commit === undefined ? LOCAL_SOURCE : `${tag === undefined ? "" : `${tag} `}${commit.slice(0, SHORT_SHA)}`.trim();
@@ -391,16 +394,16 @@ function describeChanges(paths, plans, stale, lock, replace) {
       const old = known ? lock.skills[name].commit : undefined;
       if (!known) {
         const replacing = replace.has(name) && existsSync(path.join(paths.skillsDir, name));
-        lines.push(text(replacing ? "install.change.addedReplacing" : "install.change.added", { name, label }));
+        lines.push(text(`${area}.${replacing ? "addedReplacing" : "added"}`, { name, label }));
         continue;
       }
       if (old !== commit) {
-        lines.push(text("install.change.moved", { name, from: old?.slice(0, SHORT_SHA) ?? LOCAL_SOURCE, to: label }));
+        lines.push(text(`${area}.moved`, { name, from: old?.slice(0, SHORT_SHA) ?? LOCAL_SOURCE, to: label }));
       }
       if (isEdited(paths, lock, name)) {
-        lines.push(text("install.change.overwritten", { name }));
+        lines.push(text(`${area}.overwritten`, { name }));
       }
-      lines.push(...droppedEditable(paths, lock, skill));
+      lines.push(...droppedEditable(paths, lock, skill, area));
     }
   }
   return lines;
@@ -523,7 +526,7 @@ export function installAll(root, { home, update, dryRun = false, replace = new S
   try {
     fetchPlans(plans, temp, context);
     assertNoCollisions(paths, plans, lock, replace);
-    const changes = describeChanges(paths, plans, stale, lock, replace);
+    const changes = describeChanges(paths, plans, stale, lock, replace, dryRun);
     return { ...(dryRun ? { changed: false, wrote: false } : writeAll(paths, { plans, stale, lock, manifest })), changes };
   } finally {
     rmSync(temp, { recursive: true, force: true });

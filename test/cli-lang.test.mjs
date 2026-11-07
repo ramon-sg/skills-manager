@@ -379,3 +379,46 @@ describe("language of init and add", () => {
     assert.ok(!result.stderr.includes(es.errors.unexpected()));
   });
 });
+
+describe("tense of the change lines", () => {
+  test("after install a change is told as done; a dry run tells what would happen", () => {
+    write(join(repo, ".agents/skills.json"), JSON.stringify({ sources: [] }));
+    const dry = cli(["update", "--dry-run"]);
+    assert.equal(dry.status, 0, dry.stderr);
+    assert.ok(dry.stdout.includes(es.install.planned.removed({ name: "alpha" })), dry.stdout);
+    const done = cli(["install"]);
+    assert.equal(done.status, 0, done.stderr);
+    assert.ok(done.stdout.includes(es.install.change.removed({ name: "alpha" })), done.stdout);
+    assert.ok(!done.stdout.includes(es.install.planned.removed({ name: "alpha" })), done.stdout);
+  });
+
+  test("in English too", () => {
+    write(join(repo, ".agents/skills.json"), JSON.stringify({ sources: [] }));
+    assert.ok(cli(["update", "--dry-run", "--lang", "en"]).stdout.includes(en.install.planned.removed({ name: "alpha" })));
+    assert.ok(cli(["install", "--lang", "en"]).stdout.includes(en.install.change.removed({ name: "alpha" })));
+  });
+});
+
+describe("other JSON files that are broken", () => {
+  test("a broken .claude/settings.json is a keyed error naming the file, with the parse message below", () => {
+    write(join(repo, ".claude/settings.json"), "{ not json");
+    rmSync(join(repo, ".agents/skills/alpha"), { recursive: true });
+    write(join(repo, "home/.claude/skills/alpha/SKILL.md"), "Alpha.\n");
+    const result = cli(["install"], { SKILLS_HOME: join(repo, "home") });
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /\[!\]/);
+    assert.ok(result.stderr.includes(es.errors.json.bad({ file: ".claude/settings.json" })), result.stderr);
+    assert.ok(result.stderr.split("\n").some((line) => /^\s+\S/.test(line) && /JSON/.test(line)), result.stderr);
+    assert.ok(!result.stderr.includes(es.errors.unexpected()));
+  });
+
+  test("a broken installed_plugins.json is a keyed error naming the file", () => {
+    const home = join(repo, "home");
+    write(join(home, ".claude/plugins/installed_plugins.json"), "{ not json");
+    const result = cli(["add", "--candidates"], { SKILLS_HOME: home });
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /\[!\]/);
+    assert.match(result.stderr, /installed_plugins\.json no es un JSON válido/);
+    assert.ok(!result.stderr.includes(es.errors.unexpected()));
+  });
+});

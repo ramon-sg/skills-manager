@@ -67,14 +67,34 @@ export const PLUGINS_DIR = ".claude/plugins";
 export const LOCAL_SOURCE = "local";
 
 /**
+ * How a file is named in a message: relative to the current folder when it is inside it,
+ * absolute otherwise.
+ *
+ * @param file - Absolute path.
+ * @returns The path to show.
+ */
+function shownPath(file) {
+  const rel = path.relative(process.cwd(), file);
+  return rel === "" || rel.startsWith("..") || path.isAbsolute(rel) ? file : rel;
+}
+
+/**
  * Reads a JSON file from disk.
  *
  * @param file - File path.
+ * @param shown - How the file is named if it is not JSON; by default its path, relative
+ * to the current folder when it is inside it.
  * @returns The parsed content.
- * @throws {Error} If it cannot be read or is not JSON.
+ * @throws {Error} If it cannot be read; `errors.json.bad`, with the parse message as detail,
+ * if it is not JSON.
  */
-export function readJson(file) {
-  return JSON.parse(readFileSync(file, "utf8"));
+export function readJson(file, shown = shownPath(file)) {
+  const content = readFileSync(file, "utf8");
+  try {
+    return JSON.parse(content);
+  } catch (error) {
+    throw fail("errors.json.bad", { file: shown, detail: error.message });
+  }
 }
 
 /**
@@ -241,7 +261,7 @@ export function readLock(paths) {
     try {
       lock = readJson(file);
     } catch (error) {
-      throw fail("errors.lock.badJson", { file: path.basename(file), detail: error.message });
+      throw fail("errors.lock.badJson", { file: path.basename(file), detail: error.params?.detail ?? error.message });
     }
   }
   const lockVersion = lock.lockVersion === undefined ? BASE_LOCK_VERSION : lock.lockVersion;

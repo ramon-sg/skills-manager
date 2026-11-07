@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
@@ -189,5 +189,127 @@ describe("session-notice language", () => {
     write(join(repo, ".agents/skills.json"), JSON.stringify({ sources: [], sessionStart: ["ghost"] }));
     assert.ok(cli(["session-notice"]).stderr.includes(es.notice.missing({ name: "ghost" })));
     assert.ok(cli(["session-notice", "--lang", "en"]).stderr.includes(en.notice.missing({ name: "ghost" })));
+  });
+});
+
+/** Identity so the origin can commit without the machine's git config. */
+const GIT_IDENTITY = ["-c", "user.name=Test", "-c", "user.email=test@example.com"];
+
+/**
+ * Runs git, failing the test if it exits badly.
+ *
+ * @param cwd - Folder.
+ * @param args - Git arguments.
+ */
+function git(cwd, args) {
+  const result = spawnSync("git", [...GIT_IDENTITY, ...args], { cwd, encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+}
+
+describe("install and update", () => {
+  let origin;
+
+  /**
+   * Commits the origin's skills with the given text.
+   *
+   * @param body - Text of both skills.
+   */
+  function publish(body) {
+    for (const name of ["one", "two"]) {
+      write(join(origin, `skills/${name}/SKILL.md`), `---\nname: ${name}\ndescription: Does ${name}.\n---\n${body}\n`);
+    }
+    git(origin, ["add", "-A"]);
+    git(origin, ["commit", "-q", "-m", body]);
+  }
+
+  beforeEach(() => {
+    origin = join(repo, "origin-repo");
+    mkdirSync(origin);
+    git(origin, ["init", "-q", "-b", "main"]);
+    publish("v1");
+    write(join(repo, ".agents/skills.json"), JSON.stringify({
+      sources: [{ repo: `file://${origin}`, path: "skills/one" }, { repo: `file://${origin}`, path: "skills/two" }],
+    }));
+    rmSync(join(repo, ".agents/skills.lock.json"));
+    rmSync(join(repo, ".agents/skills/alpha"), { recursive: true });
+    write(join(repo, ".gitignore"), "origin-repo\n");
+  });
+
+  test("the first install closes with [ok], the done title and each new skill; the second says it is up to date", () => {
+    const first = cli(["install"]);
+    assert.equal(first.status, 0, first.stderr);
+    assert.match(first.stdout, /\[ok\]/);
+    assert.ok(first.stdout.includes(es.install.done()));
+    assert.ok(first.stdout.includes("one") && first.stdout.includes("two"));
+    const second = cli(["install"]);
+    assert.equal(second.status, 0, second.stderr);
+    assert.ok(second.stdout.includes(es.install.upToDate()));
+  });
+
+  test("--lang en gives the English title", () => {
+    assert.ok(cli(["install", "--lang", "en"]).stdout.includes(en.install.done()));
+  });
+
+  test("update --dry-run after a new commit says [?] and the dry-run title, and writes nothing", () => {
+    cli(["install"]);
+    const before = readFileSync(join(repo, ".agents/skills.lock.json"), "utf8");
+    publish("v2");
+    const result = cli(["update", "--dry-run"]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /\[\?\]/);
+    assert.ok(result.stdout.includes(es.install.dryRun()));
+    assert.ok(result.stdout.includes("one") && result.stdout.includes("→"));
+    assert.equal(readFileSync(join(repo, ".agents/skills.lock.json"), "utf8"), before);
+  });
+
+  test("install without a manifest suggests init", () => {
+    rmSync(join(repo, ".agents/skills.json"));
+    const result = cli(["install"]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /\[\?\]/);
+    assert.ok(result.stdout.includes(es.install.noManifest({ file: ".agents/skills.json" })));
+    assert.ok(result.stdout.includes("skills-manager init"));
+  });
+
+  test("a hand-edited skill fails with [!] and both commands whole", () => {
+    cli(["install"]);
+    write(join(repo, ".agents/skills/one/SKILL.md"), "edited\n");
+    publish("v2");
+    const result = cli(["update", "two"]);
+    assert.equal(result.status, 1);
+    assert.ok(result.stderr.includes("[!]"));
+    assert.ok(result.stderr.includes("rm -rf .agents/skills/one && skills-manager install"));
+    assert.ok(result.stderr.includes("skills-manager update one"));
+    assert.ok(!result.stderr.includes("was edited by hand"));
+  });
+
+  test("an own skill with the name of an incoming one fails in Spanish with the whole --replace hint", () => {
+    write(join(repo, ".agents/skills/one/SKILL.md"), "own\n");
+    const result = cli(["install"]);
+    assert.equal(result.status, 1);
+    assert.ok(result.stderr.includes("--replace one"));
+    assert.ok(!result.stderr.includes("already exists"));
+  });
+});
+
+describe("main routing", () => {
+  test("an argument named session-notice does not take the hook path", () => {
+    const result = cli(["add", "--select", "session-notice", "--candidates"]);
+    assert.ok(!(result.status === 0 && result.stderr === "" && result.stdout === ""), "took the hook path");
+    const hook = cli(["--lang", "en", "session-notice"]);
+    assert.equal(hook.status, 0);
+  });
+
+  test("session-notice stays a hook even after --lang=en and with a bad --lang", () => {
+    assert.equal(cli(["--lang=en", "session-notice"]).status, 0);
+    assert.equal(cli(["--lang", "fr", "session-notice"]).status, 0);
+  });
+
+  test("no subcommand prints the usage on stderr and exits 2", () => {
+    const result = cli([]);
+    assert.equal(result.status, 2);
+    assert.ok(result.stderr.includes(es.usage.main));
+    assert.equal(result.stdout, "");
+    assert.ok(cli(["--lang", "en"]).stderr.includes(en.usage.main));
   });
 });

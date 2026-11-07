@@ -165,7 +165,7 @@ function isExecutable(file) {
 
 /** Message for a hand-edited skill: both ways out, the lock version or the latest published. */
 const EDITED_ALPHA =
-  /"alpha" was edited by hand: to go back to the lock version, rm -rf \.agents\/skills\/alpha && skills-manager install; to overwrite it with the latest published, skills-manager update alpha/;
+  /"alpha" was edited by hand\n[\s\S]*rm -rf \.agents\/skills\/alpha && skills-manager install\n[\s\S]*skills-manager update alpha/;
 
 /** Initial commit of the origin. */
 let firstSha;

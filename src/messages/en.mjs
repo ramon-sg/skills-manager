@@ -18,6 +18,7 @@ export const en = {
   },
   next: {
     run: () => "To fix it, run:",
+    start: () => "To get started, run:",
   },
   check: {
     ok: () => "Third-party skills match the lock and the manifest.",
@@ -31,6 +32,41 @@ export const en = {
       plugins: () => "lock plugins differ from the manifest",
     },
     pluginsDiff: ({ lock, manifest }) => `lock [${lock}], manifest [${manifest}]`,
+  },
+  install: {
+    done: () => "Done: the changes were applied",
+    upToDate: () => "Everything is up to date: nothing to change",
+    dryRun: () => "This is what would change (nothing was written)",
+    noManifest: ({ file }) => `There is no ${file}: nothing to install`,
+    nothingChanged: ({ clashes }) => `${clashes}\nNothing changed.`,
+    collisions: ({ items }) => items,
+    notInLock: ({ name, file }) => `"${name}" is not in ${file}.`,
+    pluginNotFound: ({ plugin }) => `Cannot find ${plugin} in this machine's marketplaces (~/.claude/plugins).`,
+    localNotFound: ({ file }) => `Cannot find ${file}.`,
+    edited: ({ name, dir }) =>
+      `"${name}" was edited by hand\nTo go back to the lock version: rm -rf ${dir} && skills-manager install\nTo overwrite it with the latest published: skills-manager update ${name}`,
+    ownHint: ({ names, each }) =>
+      `Run it in a terminal to be asked, or again with --replace ${names}; replacing deletes each own folder: ${each}.`,
+    change: {
+      removed: ({ name }) => `${name}: will be removed`,
+      added: ({ name, label }) => `${name}: new (${label})`,
+      addedReplacing: ({ name, label }) => `${name}: new (${label}), replaces the repo's own folder`,
+      moved: ({ name, from, to }) => `${name}: ${from} → ${to}`,
+      overwritten: ({ name }) => `${name}: edited by hand, will be overwritten`,
+      editableReplaced: ({ name, rel }) => `${name}: ${rel} is no longer editable; the repo's copy will be replaced by the skill's`,
+      editableRemoved: ({ name, rel }) => `${name}: ${rel} is no longer editable; the repo's copy will be removed`,
+    },
+  },
+  collisions: {
+    ownCatalog: ({ name, origins }) =>
+      `"${name}" (from ${origins}) already exists as an own skill: remove the own folder or drop "${name}" (and what requires it) from the catalog source`,
+    ownManifest: ({ name, origins }) => `"${name}" (from ${origins}) already exists as an own skill: exclude "${name}" in the manifest`,
+    acrossCatalogs: ({ name, origins }) => `"${name}" comes from ${origins}: keep "${name}" (and what requires it) in only one of those catalog sources`,
+    acrossManifest: ({ name, origins }) => `"${name}" comes from ${origins}: exclude "${name}" in the manifest of one of the origins`,
+  },
+  kept: {
+    nothing: () => "nothing in its folder is kept",
+    files: ({ files }) => `keeps ${files}`,
   },
   list: {
     row: ({ name, source, version, commit, newer }) => `${name}  ${source}  ${version} (${commit})${newer}`,

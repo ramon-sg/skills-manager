@@ -20,6 +20,7 @@ export const es = {
   },
   next: {
     run: () => "Para arreglarlo, ejecuta:",
+    start: () => "Para empezar, ejecuta:",
   },
   check: {
     ok: () => "Las skills de terceros coinciden con el lock y el manifiesto.",
@@ -33,6 +34,41 @@ export const es = {
       plugins: () => "plugins del lock distintos a los del manifiesto",
     },
     pluginsDiff: ({ lock, manifest }) => `lock [${lock}], manifiesto [${manifest}]`,
+  },
+  install: {
+    done: () => "Listo: se aplicaron los cambios",
+    upToDate: () => "Todo está al día: no hay nada que cambiar",
+    dryRun: () => "Esto es lo que cambiaría (no se escribió nada)",
+    noManifest: ({ file }) => `No existe ${file}: no hay nada que instalar`,
+    nothingChanged: ({ clashes }) => `${clashes}\nNo se cambió nada.`,
+    collisions: ({ items }) => items,
+    notInLock: ({ name, file }) => `"${name}" no está en ${file}.`,
+    pluginNotFound: ({ plugin }) => `No se encuentra ${plugin} en los marketplaces de esta máquina (~/.claude/plugins).`,
+    localNotFound: ({ file }) => `No se encuentra ${file}.`,
+    edited: ({ name, dir }) =>
+      `"${name}" se editó a mano\nPara volver a la versión del lock: rm -rf ${dir} && skills-manager install\nPara sobrescribirla con lo último publicado: skills-manager update ${name}`,
+    ownHint: ({ names, each }) =>
+      `Ejecútalo en una terminal para que te pregunte, o de nuevo con --replace ${names}; reemplazar borra cada carpeta de skill propia: ${each}.`,
+    change: {
+      removed: ({ name }) => `${name}: se eliminará`,
+      added: ({ name, label }) => `${name}: nueva (${label})`,
+      addedReplacing: ({ name, label }) => `${name}: nueva (${label}), reemplaza la carpeta de la skill propia`,
+      moved: ({ name, from, to }) => `${name}: ${from} → ${to}`,
+      overwritten: ({ name }) => `${name}: editada a mano, se sobrescribirá`,
+      editableReplaced: ({ name, rel }) => `${name}: ${rel} ya no es editable; la copia del repo se reemplazará por la de la skill`,
+      editableRemoved: ({ name, rel }) => `${name}: ${rel} ya no es editable; la copia del repo se eliminará`,
+    },
+  },
+  collisions: {
+    ownCatalog: ({ name, origins }) =>
+      `"${name}" (de ${origins}) ya existe como skill propia: elimina la carpeta propia o quita "${name}" (y lo que lo requiere) del origen de catálogo`,
+    ownManifest: ({ name, origins }) => `"${name}" (de ${origins}) ya existe como skill propia: excluye "${name}" en el manifiesto`,
+    acrossCatalogs: ({ name, origins }) => `"${name}" viene de ${origins}: deja "${name}" (y lo que lo requiere) en un solo origen de catálogo`,
+    acrossManifest: ({ name, origins }) => `"${name}" viene de ${origins}: excluye "${name}" en el manifiesto de uno de los orígenes`,
+  },
+  kept: {
+    nothing: () => "no se conserva nada de su carpeta",
+    files: ({ files }) => `conserva ${files}`,
   },
   list: {
     row: ({ name, source, version, commit, newer }) => `${name}  ${source}  ${version} (${commit})${newer}`,

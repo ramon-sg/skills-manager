@@ -10,6 +10,7 @@ import { createHash } from "node:crypto";
 
 import { assertCatalogEntry, assertRef, CATALOG_PREFIX } from "./catalog.mjs";
 import { assertRelPath, assertSkillName } from "./git.mjs";
+import { list, text } from "./lang.mjs";
 
 /** Keys that identify the origin of a manifest source; only one per entry. */
 const SOURCE_KINDS = ["plugin", "repo", "local", "catalog"];
@@ -200,14 +201,11 @@ export function findCollisions(incoming, own) {
   for (const [name, origin] of incoming) {
     const origins = [origin].flat();
     const fromCatalogs = origins.every((key) => key.startsWith(CATALOG_PREFIX));
+    const params = { name, origins: list(origins) };
     if (own.has(name)) {
-      messages.push(fromCatalogs
-        ? `"${name}" (from ${origins.join(", ")}) already exists as an own skill: remove the own folder or drop "${name}" (and what requires it) from the catalog source`
-        : `"${name}" (from ${origins.join(", ")}) already exists as an own skill: exclude "${name}" in the manifest`);
+      messages.push(text(fromCatalogs ? "collisions.ownCatalog" : "collisions.ownManifest", params));
     } else if (new Set(origins).size > 1) {
-      messages.push(fromCatalogs
-        ? `"${name}" comes from ${origins.join(", ")}: keep "${name}" (and what requires it) in only one of those catalog sources`
-        : `"${name}" comes from ${origins.join(", ")}: exclude "${name}" in the manifest of one of the origins`);
+      messages.push(text(fromCatalogs ? "collisions.acrossCatalogs" : "collisions.acrossManifest", params));
     }
   }
   return messages;
@@ -545,5 +543,5 @@ export function mergeSources(existing, added) {
  * @example keptText(["project.md"]) // "keeps project.md"
  */
 export function keptText(keeps) {
-  return keeps.length === 0 ? "nothing in its folder is kept" : `keeps ${keeps.join(", ")}`;
+  return keeps.length === 0 ? text("kept.nothing") : text("kept.files", { files: list(keeps) });
 }

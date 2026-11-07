@@ -5,12 +5,13 @@
  * `skills-manager init` / `skills-manager add`.
  */
 import assert from "node:assert/strict";
-import { describe, test } from "node:test";
+import { after, before, describe, test } from "node:test";
 
 import {
   diffLock,
   findCollisions,
   hashFiles,
+  keptText,
   listCandidates,
   menuOptions,
   pickSummary,
@@ -20,7 +21,10 @@ import {
   resolvePluginSource,
   rewritePluginRefs,
 } from "../src/lib.mjs";
+import { setLang } from "../src/lang.mjs";
 import { resolvePaths } from "../src/state.mjs";
+
+setLang("en");
 
 /** Official marketplace repo, where plugins with a relative path live. */
 const MARKETPLACE = "https://github.com/anthropics/claude-plugins-official.git";
@@ -423,5 +427,24 @@ describe("resolvePaths", () => {
         assert.throws(() => resolvePaths("/repo", { sources: [], paths: { [key]: value } }), /must not point at the repo root|relative/, `${key}=${JSON.stringify(value)}`);
       }
     }
+  });
+});
+
+describe("texts in Spanish", () => {
+  before(() => setLang("es"));
+  after(() => setLang("en"));
+
+  test("keptText names the files it keeps, or says nothing is kept", () => {
+    assert.ok(keptText(["project.md"]).includes("project.md"));
+    assert.ok(keptText([]).includes("no se conserva nada"));
+  });
+
+  test("findCollisions speaks Spanish and keeps the names", () => {
+    const incoming = new Map([["start-issue", "plugin-a"], ["dup", ["x", "y"]]]);
+    const messages = findCollisions(incoming, new Set(["start-issue"]));
+    assert.equal(messages.length, 2);
+    assert.ok(messages.every((message) => !message.includes("already exists") && !message.includes("comes from")));
+    assert.ok(messages[0].includes("start-issue") && messages[0].includes("plugin-a"));
+    assert.ok(messages[1].includes("dup") && messages[1].includes("x") && messages[1].includes("y"));
   });
 });

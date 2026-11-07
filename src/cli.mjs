@@ -162,7 +162,7 @@ function describeSource(entry, marketplaces) {
   const marketplace = marketplaces.get(marketplaceName);
   const pluginEntry = marketplace?.plugins.find((candidate) => candidate.name === plugin);
   if (pluginEntry === undefined) {
-    throw new Error(`Cannot find ${entry.plugin} in this machine's marketplaces (~/.claude/plugins).`);
+    throw fail("install.pluginNotFound", { plugin: entry.plugin });
   }
   const resolved = resolvePluginSource(pluginEntry, marketplace.repo);
   return { ...resolved, repo: assertRepo(resolved.repo), path: assertRelPath(resolved.path), plugin };
@@ -205,10 +205,7 @@ function isEdited(paths, lock, name) {
 function assertUntouched(paths, lock, names) {
   const edited = names.find((name) => isEdited(paths, lock, name));
   if (edited !== undefined) {
-    throw new Error(
-      `"${edited}" was edited by hand: to go back to the lock version, rm -rf ${relativeTo(paths, path.join(paths.skillsDir, edited))} && skills-manager install; ` +
-        `to overwrite it with the latest published, skills-manager update ${edited}`,
-    );
+    throw fail("install.edited", { name: edited, dir: relativeTo(paths, path.join(paths.skillsDir, edited)) });
   }
 }
 
@@ -282,7 +279,7 @@ function collectSkills(tree, plan) {
 function collectLocal(home, name) {
   const dir = path.join(home, LOCAL_SKILLS, assertSkillName(name));
   if (!isRegularFile(path.join(dir, SKILL_FILE))) {
-    throw new Error(`Cannot find ~/${LOCAL_SKILLS}/${name}/${SKILL_FILE}.`);
+    throw fail("install.localNotFound", { file: `~/${LOCAL_SKILLS}/${name}/${SKILL_FILE}` });
   }
   return { name, files: walk(dir) };
 }
@@ -367,8 +364,8 @@ function droppedEditable(paths, lock, skill) {
   return before
     .filter((rel) => !now.includes(rel) && isRegularFile(path.join(paths.skillsDir, skill.name, assertRelPath(rel))))
     .map((rel) => {
-      const fate = skill.files.some((file) => file.path === rel) ? "replaced by the skill's" : "removed";
-      return `${skill.name}: ${rel} is no longer editable; the repo's copy will be ${fate}`;
+      const key = skill.files.some((file) => file.path === rel) ? "install.change.editableReplaced" : "install.change.editableRemoved";
+      return text(key, { name: skill.name, rel });
     });
 }
 
@@ -384,23 +381,24 @@ function droppedEditable(paths, lock, skill) {
  * @returns One line per change.
  */
 function describeChanges(paths, plans, stale, lock, replace) {
-  const lines = stale.map((name) => `${name}: will be removed`);
+  const lines = stale.map((name) => text("install.change.removed", { name }));
   for (const plan of plans.filter((candidate) => candidate.skills !== undefined)) {
-    lines.push(...leavingNames(plan, plans).map((name) => `${name}: will be removed`));
+    lines.push(...leavingNames(plan, plans).map((name) => text("install.change.removed", { name })));
     for (const skill of plan.skills) {
       const { name, commit = plan.commit, tag } = skill;
       const label = commit === undefined ? LOCAL_SOURCE : `${tag === undefined ? "" : `${tag} `}${commit.slice(0, SHORT_SHA)}`.trim();
       const known = Object.hasOwn(lock.skills, name);
       const old = known ? lock.skills[name].commit : undefined;
       if (!known) {
-        lines.push(`${name}: new (${label})${replace.has(name) && existsSync(path.join(paths.skillsDir, name)) ? ", replaces the repo's own folder" : ""}`);
+        const replacing = replace.has(name) && existsSync(path.join(paths.skillsDir, name));
+        lines.push(text(replacing ? "install.change.addedReplacing" : "install.change.added", { name, label }));
         continue;
       }
       if (old !== commit) {
-        lines.push(`${name}: ${old?.slice(0, SHORT_SHA) ?? LOCAL_SOURCE} → ${label}`);
+        lines.push(text("install.change.moved", { name, from: old?.slice(0, SHORT_SHA) ?? LOCAL_SOURCE, to: label }));
       }
       if (isEdited(paths, lock, name)) {
-        lines.push(`${name}: edited by hand, will be overwritten`);
+        lines.push(text("install.change.overwritten", { name }));
       }
       lines.push(...droppedEditable(paths, lock, skill));
     }
@@ -479,7 +477,7 @@ function assertNoCollisions(paths, plans, lock, replace) {
   const clashing = [...incoming.keys()].filter((name) => own.has(name));
   const acrossOrigins = [...incoming.values()].some((origins) => new Set(origins).size > 1);
   if (acrossOrigins || clashing.length < collisions.length) {
-    throw new Error(collisions.join("\n"));
+    throw fail("install.collisions", { items: collisions.join("\n") });
   }
   const built = new Map(plans.flatMap((plan) => (plan.skills ?? []).map((skill) => [skill.name, skill])));
   const skills = clashing.map((name) => ({
@@ -487,8 +485,8 @@ function assertNoCollisions(paths, plans, lock, replace) {
     keeps: (built.get(name)?.editable ?? []).filter((rel) => isRegularFile(path.join(skillsRoot, name, assertRelPath(rel)))),
   }));
   const allowed = [...[...replace].filter((name) => incoming.has(name)), ...clashing];
-  const each = skills.map((skill) => `${skill.name} (${keptText(skill.keeps)})`).join(", ");
-  const hint = `Run it in a terminal to be asked, or again with --replace ${allowed.join(",")}; replacing deletes each own folder: ${each}.`;
+  const each = list(skills.map((skill) => `${skill.name} (${keptText(skill.keeps)})`));
+  const hint = text("install.ownHint", { names: allowed.join(","), each });
   throw new OwnSkillsError(collisions.join("\n"), skills, hint);
 }
 
@@ -499,22 +497,22 @@ function assertNoCollisions(paths, plans, lock, replace) {
  * if they are named.
  *
  * @param root - Repo root.
- * @param opts - `{ home, update?: true | name, dryRun?, log?, replace? }`; `replace` is the
+ * @param opts - `{ home, update?: true | name, dryRun?, replace? }`; `replace` is the
  * set of own skills allowed to be replaced.
- * @returns `{ changed }`: whether the lock was written.
+ * @returns `{ changed, changes }`: whether the lock was written and the lines describing
+ * what changes (in the active language); with no manifest, `noManifest: true` and `file`.
  * @throws {OwnSkillsError} If it would replace own skills not in `replace`; {Error} if a
  * skill was edited by hand, there are collisions, invalid data or git fails.
  */
-export function installAll(root, { home, update, dryRun = false, log = console.log, replace = new Set() }) {
+export function installAll(root, { home, update, dryRun = false, replace = new Set() }) {
   const manifest = readManifest(root);
   if (manifest === undefined) {
-    log(`No ${path.relative(root, resolvePaths(root).manifest)}: nothing to install.`);
-    return { changed: false };
+    return { changed: false, changes: [], noManifest: true, file: path.relative(root, resolvePaths(root).manifest) };
   }
   const paths = resolvePaths(root, manifest);
   const lock = readLock(paths);
   if (typeof update === "string" && !Object.hasOwn(lock.skills, update)) {
-    throw new Error(`"${update}" is not in ${path.relative(root, paths.lock)}.`);
+    throw fail("install.notInLock", { name: update, file: path.relative(root, paths.lock) });
   }
   const stale = staleNames(lock, manifest);
   assertUntouched(paths, lock, stale);
@@ -524,8 +522,8 @@ export function installAll(root, { home, update, dryRun = false, log = console.l
   try {
     fetchPlans(plans, temp, context);
     assertNoCollisions(paths, plans, lock, replace);
-    describeChanges(paths, plans, stale, lock, replace).forEach((line) => log(line));
-    return dryRun ? { changed: false } : writeAll(paths, { plans, stale, lock, manifest });
+    const changes = describeChanges(paths, plans, stale, lock, replace);
+    return { ...(dryRun ? { changed: false } : writeAll(paths, { plans, stale, lock, manifest })), changes };
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
@@ -804,7 +802,7 @@ export async function installAsking(root, opts, ask) {
       }
       const allowed = await ask.askReplace(error.skills);
       if (allowed.length < error.names.length) {
-        throw new Error(`${error.clashes}\nNothing changed.`);
+        throw fail("install.nothingChanged", { clashes: error.clashes });
       }
       allowed.forEach((name) => replace.add(name));
     }
@@ -831,6 +829,45 @@ function printError(error) {
   printBlock(block, process.stderr);
 }
 
+/**
+ * The first word of the command line that is not `--lang` or its value: the subcommand,
+ * found without validating the language (the session hook must never fail on it).
+ *
+ * @param argv - The command-line arguments.
+ * @returns The subcommand, or undefined.
+ */
+function firstCommand(argv) {
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--lang") {
+      i++;
+    } else if (!argv[i].startsWith("--lang=")) {
+      return argv[i];
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Prints how an `install` or `update` ended.
+ *
+ * @param result - What `installAll` returned.
+ * @param dryRun - Whether it was `update --dry-run`.
+ */
+function reportInstall(result, dryRun) {
+  const { changed, changes, noManifest, file } = result;
+  let block;
+  if (noManifest === true) {
+    block = { mood: "question", title: text("install.noManifest", { file }), next: { label: text("next.start"), command: "skills-manager init" } };
+  } else if (dryRun && changes.length > 0) {
+    block = { mood: "question", title: text("install.dryRun"), lines: changes };
+  } else if (!dryRun && changed) {
+    block = { mood: "ok", title: text("install.done"), lines: changes };
+  } else {
+    block = { mood: "ok", title: text("install.upToDate") };
+  }
+  printBlock(block, process.stdout);
+}
+
 /** Flags that ask for the help instead of running a command. */
 const HELP_FLAGS = ["--help", "-h"];
 
@@ -841,7 +878,7 @@ const HELP_FLAGS = ["--help", "-h"];
 async function main() {
   const argv = process.argv.slice(2);
   const home = process.env.SKILLS_HOME ?? homedir();
-  if (argv.includes("session-notice")) {
+  if (firstCommand(argv) === "session-notice") {
     commandSessionNotice(argv);
     return;
   }
@@ -853,22 +890,27 @@ async function main() {
       return;
     }
     const [subcommand, ...args] = words;
+    if (subcommand === undefined) {
+      process.stderr.write(`${msg().usage.main}\n`);
+      process.exit(2);
+    }
     const { rest, names: replace } = takeReplace(args);
     if (replace.size > 0 && !["install", "update", "init", "add"].includes(subcommand)) {
       throw fail("replace.misplaced", {}, { exitCode: 2 });
     }
     const root = git(["rev-parse", "--show-toplevel"], process.cwd());
     if (subcommand === "install") {
-      await installAsking(root, { home, replace }, TERMINAL);
+      reportInstall(await installAsking(root, { home, replace }, TERMINAL), false);
     } else if (subcommand === "update") {
       const name = rest.find((arg) => !arg.startsWith("--"));
-      await installAsking(root, { home, update: name ?? true, dryRun: rest.includes("--dry-run"), replace }, TERMINAL);
+      const dryRun = rest.includes("--dry-run");
+      reportInstall(await installAsking(root, { home, update: name ?? true, dryRun, replace }, TERMINAL), dryRun);
     } else if (subcommand === "check") {
       commandCheck(root);
     } else if (subcommand === "list") {
       commandList(root, home);
     } else if (subcommand === "init" || subcommand === "add") {
-      await commandPick(root, { init: subcommand === "init", args: rest, home, install: () => installAsking(root, { home, replace }, TERMINAL) });
+      await commandPick(root, { init: subcommand === "init", args: rest, home, install: async () => reportInstall(await installAsking(root, { home, replace }, TERMINAL), false) });
     } else {
       throw fail("errors.unknownCommand", { command: subcommand ?? "(none)" }, { exitCode: 2 });
     }

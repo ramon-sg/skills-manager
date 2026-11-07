@@ -12,6 +12,9 @@ import { afterEach, beforeEach, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { installAsking, OwnSkillsError } from "../src/cli.mjs";
+import { setLang } from "../src/lang.mjs";
+
+setLang("en");
 
 /** The CLI under test. */
 const CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "src", "cli.mjs");
@@ -225,7 +228,7 @@ describe("catalog install", () => {
     assert.deepEqual(lock().skills.planning.requires, ["narrative-summary"]);
     assert.equal(check.status, 0, check.output);
     assert.equal(again.status, 0, again.output);
-    assert.equal(again.output, "");
+    assert.match(again.output, /up to date/);
     assert.equal(readFileSync(join(repo, LOCK), "utf8"), before);
   });
 
@@ -254,7 +257,7 @@ describe("catalog install", () => {
     const result = cli(["install"]);
 
     assert.equal(result.status, 1);
-    assert.match(result.output, new RegExp(`"code-audit" comes from catalog:file://${origin}, catalog:file://${other}`));
+    assert.match(result.output, new RegExp(`"code-audit" comes from catalog:file://${origin} and catalog:file://${other}`));
   });
 });
 
@@ -784,7 +787,7 @@ describe("asking before replacing, as in a terminal", () => {
     ownAudit();
     const { asked, ask } = asker((skills) => skills.map((skill) => skill.name));
 
-    await installAsking(repo, { home, log: () => {} }, ask);
+    await installAsking(repo, { home }, ask);
 
     assert.deepEqual(asked, [[{ name: "code-audit", keeps: ["project.md"] }]]);
     assert.match(installed("code-audit"), /audit v1/);
@@ -795,7 +798,7 @@ describe("asking before replacing, as in a terminal", () => {
     ownAudit();
     const { asked, ask } = asker(() => []);
 
-    await assert.rejects(installAsking(repo, { home, log: () => {} }, ask), (error) => /Nothing changed/.test(error.message) && !/in a terminal/.test(error.message));
+    await assert.rejects(installAsking(repo, { home }, ask), (error) => /Nothing changed/.test(error.message) && !/in a terminal/.test(error.message));
 
     assert.equal(asked.length, 1);
     assert.equal(installed("code-audit"), "the repo's own audit\n");
@@ -805,7 +808,7 @@ describe("asking before replacing, as in a terminal", () => {
     ownAudit();
     const { asked, ask } = asker((skills) => skills.map((skill) => skill.name));
 
-    await assert.rejects(installAsking(repo, { home, log: () => {} }, { ...ask, interactive: false }), OwnSkillsError);
+    await assert.rejects(installAsking(repo, { home }, { ...ask, interactive: false }), OwnSkillsError);
 
     assert.equal(asked.length, 0);
   });

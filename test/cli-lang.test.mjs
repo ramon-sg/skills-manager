@@ -287,6 +287,7 @@ describe("install and update", () => {
     write(join(repo, ".agents/skills/one/SKILL.md"), "own\n");
     const result = cli(["install"]);
     assert.equal(result.status, 1);
+    assert.ok(!result.stderr.includes(es.errors.unexpected()));
     assert.ok(result.stderr.includes("--replace one"));
     assert.ok(!result.stderr.includes("already exists"));
   });
@@ -294,8 +295,9 @@ describe("install and update", () => {
 
 describe("main routing", () => {
   test("an argument named session-notice does not take the hook path", () => {
-    const result = cli(["add", "--select", "session-notice", "--candidates"]);
-    assert.ok(!(result.status === 0 && result.stderr === "" && result.stdout === ""), "took the hook path");
+    const result = cli(["add", "--candidates", "--select", "session-notice"], { SKILLS_HOME: repo });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), []);
     const hook = cli(["--lang", "en", "session-notice"]);
     assert.equal(hook.status, 0);
   });

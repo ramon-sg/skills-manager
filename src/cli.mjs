@@ -441,6 +441,7 @@ export class OwnSkillsError extends Error {
    */
   constructor(clashes, skills, hint) {
     super(`${clashes}\n${hint}`);
+    this.key = "install.collisions";
     this.clashes = clashes;
     this.skills = skills;
     this.names = skills.map((skill) => skill.name);

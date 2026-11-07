@@ -912,7 +912,7 @@ async function main() {
     } else if (subcommand === "list") {
       commandList(root, home);
     } else if (subcommand === "init" || subcommand === "add") {
-      await commandPick(root, { init: subcommand === "init", args: rest, home, install: async () => reportInstall(await installAsking(root, { home, replace }, TERMINAL), false, subcommand === "init" ? "pick.initDone" : "pick.addDone") });
+      await commandPick(root, { init: subcommand === "init", args: rest, home, install: () => installAsking(root, { home, replace }, TERMINAL), report: (result) => reportInstall(result, false, subcommand === "init" ? "pick.initDone" : "pick.addDone") });
     } else {
       throw fail("errors.unknownCommand", { command: subcommand ?? "(none)" }, { exitCode: 2 });
     }

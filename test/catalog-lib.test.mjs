@@ -14,6 +14,8 @@ import { assertCatalogEntry, highestRelease, readCatalog, skillDescription, with
 import { setLang } from "../src/lang.mjs";
 import { catalogMenu, mergeSources, parseManifest, parseSelect } from "../src/lib.mjs";
 
+setLang("en");
+
 /**
  * Builds a catalog candidate.
  *
@@ -92,8 +94,6 @@ describe("readCatalog", () => {
     }
   });
 });
-
-setLang("en");
 
 describe("catalog sources in the manifest", () => {
   test("a catalog source needs a skills list and no unknown keys", () => {

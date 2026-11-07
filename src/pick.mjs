@@ -315,13 +315,14 @@ async function choose(args, candidates, options) {
  * repos, or the `--repo` repo), adds it to the manifest and installs.
  *
  * @param root - Repo root.
- * @param opts - `{ init, args, home, install }`; `install` runs the installation (it may
- * ask before replacing an own skill, so it is awaited).
+ * @param opts - `{ init, args, home, install, report }`; `install` runs the installation (it may
+ * ask before replacing an own skill, so it is awaited) and returns its result; `report` prints
+ * that result once everything, including the copy of the bundled skill, has succeeded.
  * @throws {Error} Usage error (exits with 2) on a bad combination of options; if
  * `init` finds a manifest, `add` does not find one, the
  * pick is not valid or the installation fails (with the manifest already restored).
  */
-export async function commandPick(root, { init, args, home, install }) {
+export async function commandPick(root, { init, args, home, install, report }) {
   const catalogs = flagValues(args, CATALOG_FLAG);
   const from = { catalogs, repo: repoOption(args, catalogs) };
   const file = resolvePaths(root).manifest;
@@ -341,8 +342,9 @@ export async function commandPick(root, { init, args, home, install }) {
   const sources = picksToSources(await choose(args, candidates, from.repo === undefined ? {} : { empty: "pick.nothingNew" }), candidates);
   const previous = existsSync(file) ? readFileSync(file, "utf8") : undefined;
   writeManifest(root, { ...manifest, sources: mergeSources(manifest?.sources ?? [], sources) });
+  let result;
   try {
-    await install();
+    result = await install();
   } catch (error) {
     if (previous === undefined) {
       rmSync(file, { force: true });
@@ -354,4 +356,5 @@ export async function commandPick(root, { init, args, home, install }) {
   if (init) {
     copyBundledSkill(resolvePaths(root, readManifest(root)).skillsDir);
   }
+  report(result);
 }

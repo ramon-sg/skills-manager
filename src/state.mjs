@@ -236,7 +236,14 @@ export function lockVersionFor(skills) {
  */
 export function readLock(paths) {
   const file = paths.lock;
-  const lock = existsSync(file) ? readJson(file) : {};
+  let lock = {};
+  if (existsSync(file)) {
+    try {
+      lock = readJson(file);
+    } catch (error) {
+      throw fail("errors.lock.badJson", { file: path.basename(file), detail: error.message });
+    }
+  }
   const lockVersion = lock.lockVersion === undefined ? BASE_LOCK_VERSION : lock.lockVersion;
   if (!Number.isInteger(lockVersion) || lockVersion < 1) {
     throw fail("errors.lock.invalidVersion", { version: String(lockVersion) });
@@ -258,7 +265,7 @@ export function readLock(paths) {
  */
 export function readManifest(root) {
   const file = path.join(root, MANIFEST);
-  return existsSync(file) ? parseManifest(readFileSync(file, "utf8")) : undefined;
+  return existsSync(file) ? parseManifest(readFileSync(file, "utf8"), MANIFEST) : undefined;
 }
 
 /**

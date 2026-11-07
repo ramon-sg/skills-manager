@@ -12,8 +12,10 @@ export const es = {
   },
   errors: {
     unexpected: () => "Algo salió mal",
+    unknownMessageKey: ({ key }) => `Clave de mensaje desconocida: ${key}`,
     unknownCommand: ({ command }) => `Comando desconocido: ${command}; usa install, update, check, list, session-notice, init o add`,
     manifest: {
+      badJson: ({ file }) => `${file} no es un JSON válido.`,
       pathsNotObject: () => '"paths" debe ser un objeto.',
       pathsUnknownKey: ({ key, allowed }) => `Clave desconocida "${key}" en "paths"; permitidas: ${allowed}`,
       pathsNotString: ({ key }) => `"paths.${key}" debe ser un texto.`,
@@ -24,6 +26,7 @@ export const es = {
       pathRoot: ({ key, value }) => `La ruta "${key}" no puede apuntar a la raíz del repo: ${value}`,
     },
     lock: {
+      badJson: ({ file }) => `${file} no es un JSON válido.`,
       invalidVersion: ({ version }) => `El lock tiene un lockVersion inválido: ${version}.`,
       newerVersion: ({ version }) => `El lock lo escribió un skills-manager más nuevo (lockVersion ${version}); actualiza @ramon-sg/skills-manager.`,
     },
@@ -39,6 +42,7 @@ export const es = {
       noHead: ({ repo }) => `${repo} no tiene HEAD.`,
     },
     catalog: {
+      badJson: ({ file }) => `${file} no es un JSON válido.`,
       unknownKey: ({ key, allowed }) => `Clave desconocida "${key}" en un origen de catálogo; permitidas: ${allowed}`,
       needsSkills: ({ catalog }) => `El origen de catálogo ${catalog} necesita una lista "skills" que no esté vacía.`,
       badRef: ({ repo }) => `"ref" de ${repo} debe ser el nombre de una rama o una etiqueta.`,

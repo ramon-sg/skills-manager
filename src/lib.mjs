@@ -91,6 +91,7 @@ function assertOptionalFields(manifest) {
  * list, and appears only once); `paths` and `sessionStart`, if present, must be valid.
  *
  * @param text - JSON content of the manifest.
+ * @param file - Name shown if the text is not JSON.
  * @returns The parsed manifest.
  * @throws {Error} If the JSON has no `sources` or an entry breaks the rule;
  * the message includes the invalid entry.
@@ -98,8 +99,13 @@ function assertOptionalFields(manifest) {
  * parseManifest('{"sources":[{"local":"x"}]}');
  * // { sources: [{ local: "x" }] }
  */
-export function parseManifest(text) {
-  const manifest = JSON.parse(text);
+export function parseManifest(text, file = "skills.json") {
+  let manifest;
+  try {
+    manifest = JSON.parse(text);
+  } catch (error) {
+    throw fail("errors.manifest.badJson", { file, detail: error.message });
+  }
   if (!Array.isArray(manifest?.sources)) {
     throw fail("errors.manifest.noSources");
   }

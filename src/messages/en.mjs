@@ -10,8 +10,10 @@ export const en = {
   },
   errors: {
     unexpected: () => "Something went wrong",
+    unknownMessageKey: ({ key }) => `Unknown message key: ${key}`,
     unknownCommand: ({ command }) => `Unknown subcommand: ${command}; use install, update, check, list, session-notice, init or add`,
     manifest: {
+      badJson: ({ file }) => `${file} is not valid JSON.`,
       pathsNotObject: () => '"paths" must be an object.',
       pathsUnknownKey: ({ key, allowed }) => `Unknown key "${key}" in "paths"; allowed: ${allowed}`,
       pathsNotString: ({ key }) => `"paths.${key}" must be a string.`,
@@ -22,6 +24,7 @@ export const en = {
       pathRoot: ({ key, value }) => `The path "${key}" must not point at the repo root: ${value}`,
     },
     lock: {
+      badJson: ({ file }) => `${file} is not valid JSON.`,
       invalidVersion: ({ version }) => `The lock has an invalid lockVersion: ${version}.`,
       newerVersion: ({ version }) => `The lock was written by a newer skills-manager (lockVersion ${version}); upgrade @ramon-sg/skills-manager.`,
     },
@@ -37,6 +40,7 @@ export const en = {
       noHead: ({ repo }) => `${repo} has no HEAD.`,
     },
     catalog: {
+      badJson: ({ file }) => `${file} is not valid JSON.`,
       unknownKey: ({ key, allowed }) => `Unknown key "${key}" in a catalog source; allowed: ${allowed}`,
       needsSkills: ({ catalog }) => `The catalog source ${catalog} needs a non-empty "skills" list.`,
       badRef: ({ repo }) => `"ref" of ${repo} must be a branch or tag name.`,

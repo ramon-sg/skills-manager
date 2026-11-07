@@ -133,7 +133,7 @@ async function askCatalog(candidates) {
  * Shows the checkbox menu and returns what was picked.
  *
  * @param candidates - What `listCandidates` returns, or catalog or repo candidates.
- * @param options - `{ empty? }`: message when nothing is pickable; defaults to the machine's.
+ * @param options - `{ empty? }`: message key shown when nothing is pickable; defaults to the machine's.
  * @returns Picks `{ id, skills? }`.
  * @throws {Error} If nothing is pickable, or it is cancelled or not confirmed.
  */

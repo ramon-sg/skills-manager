@@ -127,7 +127,7 @@ describe("fail", () => {
   });
 
   test("an unknown key is a bug", () => {
-    assert.throws(() => fail("no.such.key"), /Unknown message key/);
+    assert.throws(() => fail("no.such.key"), /Unknown message key|Clave de mensaje desconocida/);
   });
 });
 

@@ -241,7 +241,12 @@ export function readCatalog(tree) {
   if (!existsSync(file)) {
     throw fail("errors.catalog.missing", { file: CATALOG_FILE });
   }
-  const catalog = JSON.parse(readFileSync(file, "utf8"));
+  let catalog;
+  try {
+    catalog = JSON.parse(readFileSync(file, "utf8"));
+  } catch (error) {
+    throw fail("errors.catalog.badJson", { file: CATALOG_FILE, detail: error.message });
+  }
   const version = catalog.catalogVersion ?? CATALOG_VERSION;
   if (!Number.isInteger(version) || version < 1) {
     throw fail("errors.catalog.badVersion", { file: CATALOG_FILE, version: String(version) });

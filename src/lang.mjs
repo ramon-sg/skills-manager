@@ -52,7 +52,7 @@ function resolveIn(catalog, key, params) {
     return value(params);
   }
   if (typeof value !== "string") {
-    throw new Error(`Unknown message key: ${key}`);
+    throw new Error(resolveIn(catalog, "errors.unknownMessageKey", { key }));
   }
   return value;
 }

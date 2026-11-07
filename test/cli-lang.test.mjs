@@ -186,10 +186,12 @@ describe("errors", () => {
   });
 
   test("an error nobody wrapped gets the generic title and its original message", () => {
-    write(join(repo, ".agents/skills.json"), "not json");
+    rmSync(join(repo, ".agents/skills.json"));
+    mkdirSync(join(repo, ".agents/skills.json"));
     const result = cli(["check"]);
     assert.equal(result.status, 1);
     assert.ok(result.stderr.includes(es.errors.unexpected()));
+    assert.match(result.stderr, /EISDIR/);
   });
 });
 
@@ -365,5 +367,15 @@ describe("language of init and add", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /\[ok\]/);
     assert.ok(result.stdout.includes(es.pick.initDone()));
+  });
+
+  test("a manifest that is not JSON is a keyed error naming the file, with the parse message below", () => {
+    write(join(repo, ".agents/skills.json"), "{ not json");
+    const result = cli(["check"]);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /\[!\]/);
+    assert.ok(result.stderr.includes(es.errors.manifest.badJson({ file: ".agents/skills.json" })));
+    assert.ok(result.stderr.split("\n").some((line) => /^\s+\S/.test(line) && /JSON/.test(line)), result.stderr);
+    assert.ok(!result.stderr.includes(es.errors.unexpected()));
   });
 });

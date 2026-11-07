@@ -103,8 +103,8 @@ describe("parseManifest sessionStart and paths", () => {
   });
 
   test("rejects an invalid sessionStart", () => {
-    assert.throws(() => parseManifest('{"sources":[],"sessionStart":"x"}'), /sessionStart/);
-    assert.throws(() => parseManifest('{"sources":[],"sessionStart":["../x"]}'), /Invalid skill name/);
+    assert.throws(() => parseManifest('{"sources":[],"sessionStart":"x"}'), { key: "errors.manifest.sessionStartNotList" });
+    assert.throws(() => parseManifest('{"sources":[],"sessionStart":["../x"]}'), { key: "errors.git.invalidSkillName" });
   });
 
   test("accepts valid ones", () => {

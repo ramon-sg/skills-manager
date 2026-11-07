@@ -106,6 +106,23 @@ describe("language of check", () => {
   });
 });
 
+describe("errors of the data modules", () => {
+  test("a git failure is a keyed error with the original stderr of git below it", () => {
+    write(join(repo, ".agents/skills.json"), JSON.stringify({ sources: [{ repo: "file:///no/such/repo/here", path: "skills/x" }] }));
+    const result = cli(["install"]);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /\[!\]/);
+    assert.ok(result.stderr.includes("falló"));
+    assert.match(result.stderr, /\n\s+.*(fatal:|does not appear to be a git repository)/);
+  });
+
+  test("a manifest without sources is explained in Spanish and in English", () => {
+    write(join(repo, ".agents/skills.json"), "{}");
+    assert.ok(cli(["check"]).stderr.includes(es.errors.manifest.noSources()));
+    assert.ok(cli(["check", "--lang", "en"]).stderr.includes(en.errors.manifest.noSources()));
+  });
+});
+
 describe("invalid language", () => {
   test("--lang fr exits 2 in Spanish naming the flag and the value", () => {
     const result = cli(["check", "--lang", "fr"]);

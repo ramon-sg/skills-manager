@@ -55,7 +55,16 @@ describe("parseManifest", () => {
   });
 
   test("rejects a manifest without a sources list", () => {
-    assert.throws(() => parseManifest("{}"), /sources/);
+    assert.throws(() => parseManifest("{}"), { key: "errors.manifest.noSources" });
+  });
+
+  test("the missing sources list is explained in Spanish by default", () => {
+    setLang("es");
+    try {
+      assert.throws(() => parseManifest("{}"), (error) => error.message.includes("sources") && !error.message.includes("needs"));
+    } finally {
+      setLang("en");
+    }
   });
 });
 

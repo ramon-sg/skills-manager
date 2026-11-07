@@ -10,6 +10,7 @@ import path from "node:path";
 
 import { CATALOG_PREFIX } from "./catalog.mjs";
 import { assertRelPath, assertSkillName, walk } from "./git.mjs";
+import { fail } from "./lang.mjs";
 import { hashFiles, parseManifest } from "./lib.mjs";
 
 /** Third-party skills manifest, relative to the repo root. Fixed: `paths` is read from it. */
@@ -41,7 +42,7 @@ export function resolvePaths(root, manifest) {
   const pick = (key, fallback) => {
     const rel = assertRelPath(configured[key] ?? fallback).replace(/\/+$/, "");
     if (rel === "." || rel === "") {
-      throw new Error(`The path "${key}" must not point at the repo root: ${JSON.stringify(configured[key])}`);
+      throw fail("errors.manifest.pathRoot", { key, value: JSON.stringify(configured[key]) });
     }
     return path.join(root, rel);
   };
@@ -238,10 +239,10 @@ export function readLock(paths) {
   const lock = existsSync(file) ? readJson(file) : {};
   const lockVersion = lock.lockVersion === undefined ? BASE_LOCK_VERSION : lock.lockVersion;
   if (!Number.isInteger(lockVersion) || lockVersion < 1) {
-    throw new Error(`The lock has an invalid lockVersion: ${lockVersion}.`);
+    throw fail("errors.lock.invalidVersion", { version: String(lockVersion) });
   }
   if (lockVersion > LOCK_VERSION) {
-    throw new Error(`The lock was written by a newer skills-manager (lockVersion ${lockVersion}); upgrade @ramon-sg/skills-manager.`);
+    throw fail("errors.lock.newerVersion", { version: lockVersion });
   }
   const skills = lock.skills ?? {};
   Object.keys(skills).forEach(assertSkillName);
@@ -293,7 +294,7 @@ export function syncProjectSettings(paths, previous, plugins) {
   const file = paths.settings;
   const settings = existsSync(file) ? readJson(file) : {};
   if (settings === null || typeof settings !== "object" || Array.isArray(settings)) {
-    throw new Error(`${file} must be a JSON object.`);
+    throw fail("errors.repo.settingsNotObject", { file });
   }
   const enabled = { ...settings.enabledPlugins };
   for (const plugin of previous.filter((name) => !plugins.includes(name) && enabled[name] === false)) {

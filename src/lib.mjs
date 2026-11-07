@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 
 import { assertCatalogEntry, assertRef, CATALOG_PREFIX } from "./catalog.mjs";
 import { assertRelPath, assertSkillName } from "./git.mjs";
-import { list, text } from "./lang.mjs";
+import { fail, list, text } from "./lang.mjs";
 
 /** Keys that identify the origin of a manifest source; only one per entry. */
 const SOURCE_KINDS = ["plugin", "repo", "local", "catalog"];
@@ -65,20 +65,20 @@ function assertOptionalFields(manifest) {
   const { paths, sessionStart } = manifest;
   if (paths !== undefined) {
     if (paths === null || typeof paths !== "object" || Array.isArray(paths)) {
-      throw new Error('"paths" must be an object.');
+      throw fail("errors.manifest.pathsNotObject");
     }
     for (const [key, value] of Object.entries(paths)) {
       if (!PATH_KEYS.includes(key)) {
-        throw new Error(`Unknown key "${key}" in "paths"; allowed: ${PATH_KEYS.join(", ")}`);
+        throw fail("errors.manifest.pathsUnknownKey", { key, allowed: list(PATH_KEYS) });
       }
       if (typeof value !== "string") {
-        throw new Error(`"paths.${key}" must be a string.`);
+        throw fail("errors.manifest.pathsNotString", { key });
       }
     }
   }
   if (sessionStart !== undefined) {
     if (!Array.isArray(sessionStart)) {
-      throw new Error('"sessionStart" must be a list of skill names.');
+      throw fail("errors.manifest.sessionStartNotList");
     }
     sessionStart.forEach(assertSkillName);
   }
@@ -100,14 +100,12 @@ function assertOptionalFields(manifest) {
 export function parseManifest(text) {
   const manifest = JSON.parse(text);
   if (!Array.isArray(manifest?.sources)) {
-    throw new Error('The manifest needs a "sources" list.');
+    throw fail("errors.manifest.noSources");
   }
   for (const entry of manifest.sources) {
     const kinds = SOURCE_KINDS.filter((kind) => entry?.[kind] !== undefined);
     if (kinds.length !== 1) {
-      throw new Error(
-        `Each source takes exactly one of ${SOURCE_KINDS.join(", ")}: ${JSON.stringify(entry)}`,
-      );
+      throw fail("errors.manifest.sourceKind", { kinds: list(SOURCE_KINDS), entry: JSON.stringify(entry) });
     }
     if (kinds[0] === "catalog") {
       assertCatalogEntry(entry);
@@ -120,7 +118,7 @@ export function parseManifest(text) {
   const catalogs = manifest.sources.map((entry) => entry.catalog).filter((catalog) => catalog !== undefined);
   const repeated = catalogs.find((catalog, index) => catalogs.indexOf(catalog) !== index);
   if (repeated !== undefined) {
-    throw new Error(`The catalog ${repeated} appears twice in the manifest; list all its skills in one source.`);
+    throw fail("errors.manifest.catalogTwice", { catalog: repeated });
   }
   assertOptionalFields(manifest);
   return manifest;
@@ -153,7 +151,7 @@ export function resolvePluginSource(entry, marketplaceRepo) {
       path: ".",
     };
   }
-  throw new Error(`Unknown source type in plugin ${entry.name}: ${JSON.stringify(source)}`);
+  throw fail("errors.source.unknownPluginSource", { name: entry.name, source: JSON.stringify(source) });
 }
 
 /**
@@ -472,21 +470,21 @@ function repoSource(candidate, skillPath) {
  */
 export function picksToSources(picks, candidates) {
   if (picks.length === 0) {
-    throw new Error("You picked nothing.");
+    throw fail("errors.source.nothingPicked");
   }
   const unique = [...new Map(picks.map((pick) => [pick.id, pick])).values()];
   const sources = [];
   for (const pick of unique) {
     const candidate = candidates.find((option) => option.id === pick.id);
     if (candidate === undefined) {
-      throw new Error(`"${pick.id}" is not among the candidates (see --candidates).`);
+      throw fail("errors.source.notCandidate", { id: pick.id });
     }
     if (candidate.note !== undefined) {
-      throw new Error(`"${pick.id}" cannot be picked: ${candidate.note}.`);
+      throw fail("errors.source.cannotPick", { id: pick.id, note: candidate.note });
     }
     const unknown = (pick.skills ?? []).filter((skill) => !candidate.skills.includes(skill));
     if (unknown.length > 0) {
-      throw new Error(`"${pick.id}" does not provide ${unknown.join(", ")}; it provides ${candidate.skills.join(", ")}.`);
+      throw fail("errors.source.unknownSkills", { id: pick.id, unknown: list(unknown), provides: list(candidate.skills) });
     }
     if (candidate.kind === "catalog") {
       const existing = sources.find((source) => source.catalog === candidate.catalog);

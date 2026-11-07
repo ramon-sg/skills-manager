@@ -10,6 +10,7 @@ import path from "node:path";
 
 import { CATALOG_PREFIX } from "./catalog.mjs";
 import { assertRelPath, assertSkillName, walk } from "./git.mjs";
+import { fail } from "./lang.mjs";
 import { hashFiles, parseManifest } from "./lib.mjs";
 
 /** Third-party skills manifest, relative to the repo root. Fixed: `paths` is read from it. */
@@ -41,7 +42,7 @@ export function resolvePaths(root, manifest) {
   const pick = (key, fallback) => {
     const rel = assertRelPath(configured[key] ?? fallback).replace(/\/+$/, "");
     if (rel === "." || rel === "") {
-      throw new Error(`The path "${key}" must not point at the repo root: ${JSON.stringify(configured[key])}`);
+      throw fail("errors.manifest.pathRoot", { key, value: JSON.stringify(configured[key]) });
     }
     return path.join(root, rel);
   };
@@ -66,14 +67,34 @@ export const PLUGINS_DIR = ".claude/plugins";
 export const LOCAL_SOURCE = "local";
 
 /**
+ * How a file is named in a message: relative to the current folder when it is inside it,
+ * absolute otherwise.
+ *
+ * @param file - Absolute path.
+ * @returns The path to show.
+ */
+function shownPath(file) {
+  const rel = path.relative(process.cwd(), file);
+  return rel === "" || rel.startsWith("..") || path.isAbsolute(rel) ? file : rel;
+}
+
+/**
  * Reads a JSON file from disk.
  *
  * @param file - File path.
+ * @param shown - How the file is named if it is not JSON; by default its path, relative
+ * to the current folder when it is inside it.
  * @returns The parsed content.
- * @throws {Error} If it cannot be read or is not JSON.
+ * @throws {Error} If it cannot be read; `errors.json.bad`, with the parse message as detail,
+ * if it is not JSON.
  */
-export function readJson(file) {
-  return JSON.parse(readFileSync(file, "utf8"));
+export function readJson(file, shown = shownPath(file)) {
+  const content = readFileSync(file, "utf8");
+  try {
+    return JSON.parse(content);
+  } catch (error) {
+    throw fail("errors.json.bad", { file: shown, detail: error.message });
+  }
 }
 
 /**
@@ -235,13 +256,20 @@ export function lockVersionFor(skills) {
  */
 export function readLock(paths) {
   const file = paths.lock;
-  const lock = existsSync(file) ? readJson(file) : {};
+  let lock = {};
+  if (existsSync(file)) {
+    try {
+      lock = readJson(file);
+    } catch (error) {
+      throw fail("errors.lock.badJson", { file: path.basename(file), detail: error.params?.detail ?? error.message });
+    }
+  }
   const lockVersion = lock.lockVersion === undefined ? BASE_LOCK_VERSION : lock.lockVersion;
   if (!Number.isInteger(lockVersion) || lockVersion < 1) {
-    throw new Error(`The lock has an invalid lockVersion: ${lockVersion}.`);
+    throw fail("errors.lock.invalidVersion", { version: String(lockVersion) });
   }
   if (lockVersion > LOCK_VERSION) {
-    throw new Error(`The lock was written by a newer skills-manager (lockVersion ${lockVersion}); upgrade @ramon-sg/skills-manager.`);
+    throw fail("errors.lock.newerVersion", { version: lockVersion });
   }
   const skills = lock.skills ?? {};
   Object.keys(skills).forEach(assertSkillName);
@@ -257,7 +285,7 @@ export function readLock(paths) {
  */
 export function readManifest(root) {
   const file = path.join(root, MANIFEST);
-  return existsSync(file) ? parseManifest(readFileSync(file, "utf8")) : undefined;
+  return existsSync(file) ? parseManifest(readFileSync(file, "utf8"), MANIFEST) : undefined;
 }
 
 /**
@@ -293,7 +321,7 @@ export function syncProjectSettings(paths, previous, plugins) {
   const file = paths.settings;
   const settings = existsSync(file) ? readJson(file) : {};
   if (settings === null || typeof settings !== "object" || Array.isArray(settings)) {
-    throw new Error(`${file} must be a JSON object.`);
+    throw fail("errors.repo.settingsNotObject", { file });
   }
   const enabled = { ...settings.enabledPlugins };
   for (const plugin of previous.filter((name) => !plugins.includes(name) && enabled[name] === false)) {

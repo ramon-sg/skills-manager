@@ -133,7 +133,7 @@ describe("readRepoSkills", () => {
 
   test("a marketplace that is not JSON fails naming the file", () => {
     write(MARKETPLACE_FILE, "{ nope");
-    assert.throws(() => readRepoSkills(tree), /marketplace\.json/);
+    assert.throws(() => readRepoSkills(tree), (error) => error.key === "errors.repo.invalidJson" && error.message.includes("marketplace.json") && error.message.split("\n").length > 1);
   });
 });
 

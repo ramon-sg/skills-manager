@@ -10,6 +10,8 @@ import { createHash } from "node:crypto";
 
 import { assertCatalogEntry, assertRef, CATALOG_PREFIX } from "./catalog.mjs";
 import { assertRelPath, assertSkillName } from "./git.mjs";
+import { fail, list, text } from "./lang.mjs";
+import { OTHER_REPO_NOTE } from "./repo-source.mjs";
 
 /** Keys that identify the origin of a manifest source; only one per entry. */
 const SOURCE_KINDS = ["plugin", "repo", "local", "catalog"];
@@ -64,20 +66,20 @@ function assertOptionalFields(manifest) {
   const { paths, sessionStart } = manifest;
   if (paths !== undefined) {
     if (paths === null || typeof paths !== "object" || Array.isArray(paths)) {
-      throw new Error('"paths" must be an object.');
+      throw fail("errors.manifest.pathsNotObject");
     }
     for (const [key, value] of Object.entries(paths)) {
       if (!PATH_KEYS.includes(key)) {
-        throw new Error(`Unknown key "${key}" in "paths"; allowed: ${PATH_KEYS.join(", ")}`);
+        throw fail("errors.manifest.pathsUnknownKey", { key, allowed: list(PATH_KEYS) });
       }
       if (typeof value !== "string") {
-        throw new Error(`"paths.${key}" must be a string.`);
+        throw fail("errors.manifest.pathsNotString", { key });
       }
     }
   }
   if (sessionStart !== undefined) {
     if (!Array.isArray(sessionStart)) {
-      throw new Error('"sessionStart" must be a list of skill names.');
+      throw fail("errors.manifest.sessionStartNotList");
     }
     sessionStart.forEach(assertSkillName);
   }
@@ -89,6 +91,7 @@ function assertOptionalFields(manifest) {
  * list, and appears only once); `paths` and `sessionStart`, if present, must be valid.
  *
  * @param text - JSON content of the manifest.
+ * @param file - Name shown if the text is not JSON.
  * @returns The parsed manifest.
  * @throws {Error} If the JSON has no `sources` or an entry breaks the rule;
  * the message includes the invalid entry.
@@ -96,17 +99,20 @@ function assertOptionalFields(manifest) {
  * parseManifest('{"sources":[{"local":"x"}]}');
  * // { sources: [{ local: "x" }] }
  */
-export function parseManifest(text) {
-  const manifest = JSON.parse(text);
+export function parseManifest(text, file = "skills.json") {
+  let manifest;
+  try {
+    manifest = JSON.parse(text);
+  } catch (error) {
+    throw fail("errors.manifest.badJson", { file, detail: error.message });
+  }
   if (!Array.isArray(manifest?.sources)) {
-    throw new Error('The manifest needs a "sources" list.');
+    throw fail("errors.manifest.noSources");
   }
   for (const entry of manifest.sources) {
     const kinds = SOURCE_KINDS.filter((kind) => entry?.[kind] !== undefined);
     if (kinds.length !== 1) {
-      throw new Error(
-        `Each source takes exactly one of ${SOURCE_KINDS.join(", ")}: ${JSON.stringify(entry)}`,
-      );
+      throw fail("errors.manifest.sourceKind", { kinds: list(SOURCE_KINDS, "disjunction"), entry: JSON.stringify(entry) });
     }
     if (kinds[0] === "catalog") {
       assertCatalogEntry(entry);
@@ -119,7 +125,7 @@ export function parseManifest(text) {
   const catalogs = manifest.sources.map((entry) => entry.catalog).filter((catalog) => catalog !== undefined);
   const repeated = catalogs.find((catalog, index) => catalogs.indexOf(catalog) !== index);
   if (repeated !== undefined) {
-    throw new Error(`The catalog ${repeated} appears twice in the manifest; list all its skills in one source.`);
+    throw fail("errors.manifest.catalogTwice", { catalog: repeated });
   }
   assertOptionalFields(manifest);
   return manifest;
@@ -152,7 +158,7 @@ export function resolvePluginSource(entry, marketplaceRepo) {
       path: ".",
     };
   }
-  throw new Error(`Unknown source type in plugin ${entry.name}: ${JSON.stringify(source)}`);
+  throw fail("errors.source.unknownPluginSource", { name: entry.name, source: JSON.stringify(source) });
 }
 
 /**
@@ -200,14 +206,11 @@ export function findCollisions(incoming, own) {
   for (const [name, origin] of incoming) {
     const origins = [origin].flat();
     const fromCatalogs = origins.every((key) => key.startsWith(CATALOG_PREFIX));
+    const params = { name, origins: list(origins) };
     if (own.has(name)) {
-      messages.push(fromCatalogs
-        ? `"${name}" (from ${origins.join(", ")}) already exists as an own skill: remove the own folder or drop "${name}" (and what requires it) from the catalog source`
-        : `"${name}" (from ${origins.join(", ")}) already exists as an own skill: exclude "${name}" in the manifest`);
+      messages.push(text(fromCatalogs ? "collisions.ownCatalog" : "collisions.ownManifest", params));
     } else if (new Set(origins).size > 1) {
-      messages.push(fromCatalogs
-        ? `"${name}" comes from ${origins.join(", ")}: keep "${name}" (and what requires it) in only one of those catalog sources`
-        : `"${name}" comes from ${origins.join(", ")}: exclude "${name}" in the manifest of one of the origins`);
+      messages.push(text(fromCatalogs ? "collisions.acrossCatalogs" : "collisions.acrossManifest", params));
     }
   }
   return messages;
@@ -354,6 +357,22 @@ function shortName(id) {
 }
 
 /**
+ * Translates the notes of candidates that cannot be picked; any other note is returned as is.
+ * The notes inside the candidates stay in English so `--candidates` does not depend on the language.
+ *
+ * @param note - A candidate's `note`.
+ * @returns The note in the current language.
+ */
+export function noteText(note) {
+  const marketplace = /^could not read marketplace (.+)$/.exec(note)?.[1];
+  if (marketplace !== undefined) {
+    return text("pick.note.unreadableMarketplace", { marketplace });
+  }
+  const keys = { "not on disk": "pick.note.notOnDisk", "no skills": "pick.note.noSkills", [OTHER_REPO_NOTE]: "pick.note.otherRepo" };
+  return keys[note] === undefined ? note : text(keys[note]);
+}
+
+/**
  * Builds the options of the interactive menu: one short line per pickable
  * candidate (name and how many skills it brings, or the description of a repo
  * skill, all in the label so it shows on every row and not only on the
@@ -376,7 +395,7 @@ export function menuOptions(candidates) {
     const name = shortName(candidate.id);
     const label = repeated.has(name) ? `${name} (${candidate.id.split(PLUGIN_ID_SEPARATOR)[1]})` : name;
     if (candidate.note !== undefined) {
-      hidden.push(`${label} (${candidate.note})`);
+      hidden.push(`${label} (${noteText(candidate.note)})`);
       continue;
     }
     if (candidate.kind === REPO_SKILL) {
@@ -384,7 +403,7 @@ export function menuOptions(candidates) {
       continue;
     }
     const count = candidate.skills.length;
-    const detail = candidate.kind === "local" ? "yours" : `${count} ${count === 1 ? "skill" : "skills"}`;
+    const detail = candidate.kind === "local" ? text("pick.yours") : text(count === 1 ? "pick.skillOne" : "pick.skillMany", { count });
     options.push({ value: candidate.id, label: `${label} · ${detail}` });
   }
   return { options, hidden };
@@ -434,12 +453,12 @@ export function pickSummary(picks, candidates) {
         return `${name} · ${candidate.repo}`;
       }
       if (candidate?.kind === "local") {
-        return `${name} (yours)`;
+        return `${name} (${text("pick.yours")})`;
       }
       if (pick.skills?.length > 0) {
         return `${name}: ${pick.skills.join(", ")}`;
       }
-      return `${name} (all, ${candidate?.skills.length ?? 0})`;
+      return `${name} ${text("pick.all", { count: candidate?.skills.length ?? 0 })}`;
     })
     .join("\n");
 }
@@ -474,21 +493,21 @@ function repoSource(candidate, skillPath) {
  */
 export function picksToSources(picks, candidates) {
   if (picks.length === 0) {
-    throw new Error("You picked nothing.");
+    throw fail("errors.source.nothingPicked");
   }
   const unique = [...new Map(picks.map((pick) => [pick.id, pick])).values()];
   const sources = [];
   for (const pick of unique) {
     const candidate = candidates.find((option) => option.id === pick.id);
     if (candidate === undefined) {
-      throw new Error(`"${pick.id}" is not among the candidates (see --candidates).`);
+      throw fail("errors.source.notCandidate", { id: pick.id });
     }
     if (candidate.note !== undefined) {
-      throw new Error(`"${pick.id}" cannot be picked: ${candidate.note}.`);
+      throw fail("errors.source.cannotPick", { id: pick.id, note: noteText(candidate.note) });
     }
     const unknown = (pick.skills ?? []).filter((skill) => !candidate.skills.includes(skill));
     if (unknown.length > 0) {
-      throw new Error(`"${pick.id}" does not provide ${unknown.join(", ")}; it provides ${candidate.skills.join(", ")}.`);
+      throw fail("errors.source.unknownSkills", { id: pick.id, unknown: list(unknown), provides: list(candidate.skills) });
     }
     if (candidate.kind === "catalog") {
       const existing = sources.find((source) => source.catalog === candidate.catalog);
@@ -545,5 +564,5 @@ export function mergeSources(existing, added) {
  * @example keptText(["project.md"]) // "keeps project.md"
  */
 export function keptText(keeps) {
-  return keeps.length === 0 ? "nothing in its folder is kept" : `keeps ${keeps.join(", ")}`;
+  return keeps.length === 0 ? text("kept.nothing") : text("kept.files", { files: list(keeps) });
 }

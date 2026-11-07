@@ -12,6 +12,7 @@ import path from "node:path";
 
 import { catalogRepo, latestRelease, readCatalog, withRequires } from "./catalog.mjs";
 import { assertRelPath, fetchSource, insideTree, walk } from "./git.mjs";
+import { fail } from "./lang.mjs";
 import { installedHash, isRegularFile, SKILL_FILE } from "./state.mjs";
 
 /** License copied from the catalog root into each skill. */
@@ -35,7 +36,7 @@ const TAG_PREFIX = "v";
 function buildSkill(tree, item, { commit, tag }) {
   const dir = insideTree(tree, item.path);
   if (!isRegularFile(path.join(dir, SKILL_FILE))) {
-    throw new Error(`"${item.name}" has no ${SKILL_FILE} at ${item.path}.`);
+    throw fail("errors.catalog.noSkillFile", { name: item.name, file: SKILL_FILE, path: item.path });
   }
   const all = walk(dir);
   const files = all.filter((file) => !item.editable.includes(file.path));
@@ -102,7 +103,9 @@ export function resolveCatalogPlan(plan, { paths, lock, update, temp, index }) {
     const { tree, catalog } = checkout(release.commit);
     const item = catalog.get(name);
     if (item === undefined) {
-      throw new Error(`"${name}" is not in the catalog ${entry.catalog}${release.tag === undefined ? "" : ` at ${release.tag}`}.`);
+      throw release.tag === undefined
+        ? fail("errors.catalog.notInCatalog", { name, catalog: entry.catalog })
+        : fail("errors.catalog.notInCatalogAt", { name, catalog: entry.catalog, tag: release.tag });
     }
     skills.push(buildSkill(tree, item, release));
     return item.requires;

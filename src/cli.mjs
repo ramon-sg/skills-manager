@@ -33,6 +33,8 @@ import { fileURLToPath } from "node:url";
 
 import { CATALOG_PREFIX, catalogRepo, latestRelease, TEMPLATE_SUFFIX, withRequires } from "./catalog.mjs";
 import { resolveCatalogPlan } from "./catalog-plan.mjs";
+import { printBlock } from "./banner.mjs";
+import { fail, list, msg, resolveLang, setLang, takeLang, text } from "./lang.mjs";
 import { askReplace } from "./prompt.mjs";
 import { pluginWithPath } from "./repo-source.mjs";
 import { assertRelPath, assertRepo, assertSkillName, fetchSource, git, insideTree, latestCommit, walk } from "./git.mjs";
@@ -160,7 +162,7 @@ function describeSource(entry, marketplaces) {
   const marketplace = marketplaces.get(marketplaceName);
   const pluginEntry = marketplace?.plugins.find((candidate) => candidate.name === plugin);
   if (pluginEntry === undefined) {
-    throw new Error(`Cannot find ${entry.plugin} in this machine's marketplaces (~/.claude/plugins).`);
+    throw fail("install.pluginNotFound", { plugin: entry.plugin });
   }
   const resolved = resolvePluginSource(pluginEntry, marketplace.repo);
   return { ...resolved, repo: assertRepo(resolved.repo), path: assertRelPath(resolved.path), plugin };
@@ -203,10 +205,7 @@ function isEdited(paths, lock, name) {
 function assertUntouched(paths, lock, names) {
   const edited = names.find((name) => isEdited(paths, lock, name));
   if (edited !== undefined) {
-    throw new Error(
-      `"${edited}" was edited by hand: to go back to the lock version, rm -rf ${relativeTo(paths, path.join(paths.skillsDir, edited))} && skills-manager install; ` +
-        `to overwrite it with the latest published, skills-manager update ${edited}`,
-    );
+    throw fail("install.edited", { name: edited, dir: relativeTo(paths, path.join(paths.skillsDir, edited)) });
   }
 }
 
@@ -219,7 +218,7 @@ function assertUntouched(paths, lock, names) {
 function versionOf(dir) {
   for (const file of [".claude-plugin/plugin.json", "package.json"]) {
     const full = path.join(dir, file);
-    const version = isRegularFile(full) ? readJson(full).version : undefined;
+    const version = isRegularFile(full) ? readJson(full, file).version : undefined;
     if (version !== undefined) {
       return version;
     }
@@ -280,7 +279,7 @@ function collectSkills(tree, plan) {
 function collectLocal(home, name) {
   const dir = path.join(home, LOCAL_SKILLS, assertSkillName(name));
   if (!isRegularFile(path.join(dir, SKILL_FILE))) {
-    throw new Error(`Cannot find ~/${LOCAL_SKILLS}/${name}/${SKILL_FILE}.`);
+    throw fail("install.localNotFound", { file: `~/${LOCAL_SKILLS}/${name}/${SKILL_FILE}` });
   }
   return { name, files: walk(dir) };
 }
@@ -357,16 +356,17 @@ function planSource(entry, context) {
  * @param paths - Paths from `resolvePaths`.
  * @param lock - Previous lock.
  * @param skill - Built skill of the new version.
- * @returns One line per file that will be removed or replaced.
+ * @param area - Catalog area of the lines: `install.change` (done) or `install.planned` (dry run).
+ * @returns One line per file that is removed or replaced.
  */
-function droppedEditable(paths, lock, skill) {
+function droppedEditable(paths, lock, skill, area) {
   const before = lock.skills[skill.name]?.editable ?? [];
   const now = skill.editable ?? [];
   return before
     .filter((rel) => !now.includes(rel) && isRegularFile(path.join(paths.skillsDir, skill.name, assertRelPath(rel))))
     .map((rel) => {
-      const fate = skill.files.some((file) => file.path === rel) ? "replaced by the skill's" : "removed";
-      return `${skill.name}: ${rel} is no longer editable; the repo's copy will be ${fate}`;
+      const kind = skill.files.some((file) => file.path === rel) ? "editableReplaced" : "editableRemoved";
+      return text(`${area}.${kind}`, { name: skill.name, rel });
     });
 }
 
@@ -379,28 +379,31 @@ function droppedEditable(paths, lock, skill) {
  * @param stale - Lock skills whose source is no longer in the manifest.
  * @param lock - Previous lock.
  * @param replace - Own skills that will be replaced.
+ * @param dryRun - Whether nothing gets written: the lines then say what would happen.
  * @returns One line per change.
  */
-function describeChanges(paths, plans, stale, lock, replace) {
-  const lines = stale.map((name) => `${name}: will be removed`);
+function describeChanges(paths, plans, stale, lock, replace, dryRun) {
+  const area = dryRun ? "install.planned" : "install.change";
+  const lines = stale.map((name) => text(`${area}.removed`, { name }));
   for (const plan of plans.filter((candidate) => candidate.skills !== undefined)) {
-    lines.push(...leavingNames(plan, plans).map((name) => `${name}: will be removed`));
+    lines.push(...leavingNames(plan, plans).map((name) => text(`${area}.removed`, { name })));
     for (const skill of plan.skills) {
       const { name, commit = plan.commit, tag } = skill;
       const label = commit === undefined ? LOCAL_SOURCE : `${tag === undefined ? "" : `${tag} `}${commit.slice(0, SHORT_SHA)}`.trim();
       const known = Object.hasOwn(lock.skills, name);
       const old = known ? lock.skills[name].commit : undefined;
       if (!known) {
-        lines.push(`${name}: new (${label})${replace.has(name) && existsSync(path.join(paths.skillsDir, name)) ? ", replaces the repo's own folder" : ""}`);
+        const replacing = replace.has(name) && existsSync(path.join(paths.skillsDir, name));
+        lines.push(text(`${area}.${replacing ? "addedReplacing" : "added"}`, { name, label }));
         continue;
       }
       if (old !== commit) {
-        lines.push(`${name}: ${old?.slice(0, SHORT_SHA) ?? LOCAL_SOURCE} → ${label}`);
+        lines.push(text(`${area}.moved`, { name, from: old?.slice(0, SHORT_SHA) ?? LOCAL_SOURCE, to: label }));
       }
       if (isEdited(paths, lock, name)) {
-        lines.push(`${name}: edited by hand, will be overwritten`);
+        lines.push(text(`${area}.overwritten`, { name }));
       }
-      lines.push(...droppedEditable(paths, lock, skill));
+      lines.push(...droppedEditable(paths, lock, skill, area));
     }
   }
   return lines;
@@ -441,6 +444,7 @@ export class OwnSkillsError extends Error {
    */
   constructor(clashes, skills, hint) {
     super(`${clashes}\n${hint}`);
+    this.key = "install.collisions";
     this.clashes = clashes;
     this.skills = skills;
     this.names = skills.map((skill) => skill.name);
@@ -477,7 +481,7 @@ function assertNoCollisions(paths, plans, lock, replace) {
   const clashing = [...incoming.keys()].filter((name) => own.has(name));
   const acrossOrigins = [...incoming.values()].some((origins) => new Set(origins).size > 1);
   if (acrossOrigins || clashing.length < collisions.length) {
-    throw new Error(collisions.join("\n"));
+    throw fail("install.collisions", { items: collisions.join("\n") });
   }
   const built = new Map(plans.flatMap((plan) => (plan.skills ?? []).map((skill) => [skill.name, skill])));
   const skills = clashing.map((name) => ({
@@ -485,8 +489,8 @@ function assertNoCollisions(paths, plans, lock, replace) {
     keeps: (built.get(name)?.editable ?? []).filter((rel) => isRegularFile(path.join(skillsRoot, name, assertRelPath(rel)))),
   }));
   const allowed = [...[...replace].filter((name) => incoming.has(name)), ...clashing];
-  const each = skills.map((skill) => `${skill.name} (${keptText(skill.keeps)})`).join(", ");
-  const hint = `Run it in a terminal to be asked, or again with --replace ${allowed.join(",")}; replacing deletes each own folder: ${each}.`;
+  const each = list(skills.map((skill) => `${skill.name} (${keptText(skill.keeps)})`));
+  const hint = text("install.ownHint", { names: allowed.join(","), each });
   throw new OwnSkillsError(collisions.join("\n"), skills, hint);
 }
 
@@ -497,22 +501,22 @@ function assertNoCollisions(paths, plans, lock, replace) {
  * if they are named.
  *
  * @param root - Repo root.
- * @param opts - `{ home, update?: true | name, dryRun?, log?, replace? }`; `replace` is the
+ * @param opts - `{ home, update?: true | name, dryRun?, replace? }`; `replace` is the
  * set of own skills allowed to be replaced.
- * @returns `{ changed }`: whether the lock was written.
+ * @returns `{ changed, changes }`: whether the lock was written and the lines describing
+ * what changes (in the active language); with no manifest, `noManifest: true` and `file`.
  * @throws {OwnSkillsError} If it would replace own skills not in `replace`; {Error} if a
  * skill was edited by hand, there are collisions, invalid data or git fails.
  */
-export function installAll(root, { home, update, dryRun = false, log = console.log, replace = new Set() }) {
+export function installAll(root, { home, update, dryRun = false, replace = new Set() }) {
   const manifest = readManifest(root);
   if (manifest === undefined) {
-    log(`No ${path.relative(root, resolvePaths(root).manifest)}: nothing to install.`);
-    return { changed: false };
+    return { changed: false, changes: [], noManifest: true, file: path.relative(root, resolvePaths(root).manifest) };
   }
   const paths = resolvePaths(root, manifest);
   const lock = readLock(paths);
   if (typeof update === "string" && !Object.hasOwn(lock.skills, update)) {
-    throw new Error(`"${update}" is not in ${path.relative(root, paths.lock)}.`);
+    throw fail("install.notInLock", { name: update, file: path.relative(root, paths.lock) });
   }
   const stale = staleNames(lock, manifest);
   assertUntouched(paths, lock, stale);
@@ -522,8 +526,8 @@ export function installAll(root, { home, update, dryRun = false, log = console.l
   try {
     fetchPlans(plans, temp, context);
     assertNoCollisions(paths, plans, lock, replace);
-    describeChanges(paths, plans, stale, lock, replace).forEach((line) => log(line));
-    return dryRun ? { changed: false } : writeAll(paths, { plans, stale, lock, manifest });
+    const changes = describeChanges(paths, plans, stale, lock, replace, dryRun);
+    return { ...(dryRun ? { changed: false, wrote: false } : writeAll(paths, { plans, stale, lock, manifest })), changes };
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
@@ -589,11 +593,13 @@ function leavingNames(plan, plans) {
  *
  * @param paths - Paths from `resolvePaths`.
  * @param state - `{ plans, stale, lock, manifest }`.
- * @returns `{ changed }`: whether the lock was written.
+ * @returns `{ changed, wrote }`: whether the lock was written, and whether any skill folder was created, rewritten with other content, or deleted.
  */
 function writeAll(paths, { plans, stale, lock, manifest }) {
   const skills = { ...lock.skills };
+  let wrote = false;
   const remove = (name) => {
+    wrote ||= existsSync(path.join(paths.skillsDir, name));
     rmSync(path.join(paths.skillsDir, name), { recursive: true, force: true });
     delete skills[name];
   };
@@ -604,6 +610,8 @@ function writeAll(paths, { plans, stale, lock, manifest }) {
     for (const skill of plan.skills) {
       const dir = path.join(paths.skillsDir, skill.name);
       const editable = readEditable(dir, skill);
+      const entry = lockEntry(plan, skill);
+      wrote ||= installedHash(paths, skill.name, entry.editable) !== entry.hash;
       rmSync(dir, { recursive: true, force: true });
       for (const file of [...skill.files, ...editable]) {
         mkdirSync(path.dirname(path.join(dir, file.path)), { recursive: true });
@@ -612,18 +620,18 @@ function writeAll(paths, { plans, stale, lock, manifest }) {
           chmodSync(path.join(dir, file.path), EXECUTABLE_MODE);
         }
       }
-      skills[skill.name] = lockEntry(plan, skill);
+      skills[skill.name] = entry;
     }
   }
   const sorted = Object.fromEntries(Object.keys(skills).sort().map((name) => [name, skills[name]]));
-  const text = `${JSON.stringify({ lockVersion: lockVersionFor(sorted), skills: sorted, plugins: manifestPlugins(manifest) }, null, 2)}\n`;
+  const lockText = `${JSON.stringify({ lockVersion: lockVersionFor(sorted), skills: sorted, plugins: manifestPlugins(manifest) }, null, 2)}\n`;
   syncProjectSettings(paths, lock.plugins, manifestPlugins(manifest));
   const file = paths.lock;
-  if (existsSync(file) && readFileSync(file, "utf8") === text) {
-    return { changed: false };
+  if (existsSync(file) && readFileSync(file, "utf8") === lockText) {
+    return { changed: false, wrote };
   }
-  writeFileSync(file, text);
-  return { changed: true };
+  writeFileSync(file, lockText);
+  return { changed: true, wrote };
 }
 
 /**
@@ -648,14 +656,14 @@ function driftProblems(paths, manifest, lock) {
   const remote = manifest.sources.filter((entry) => entry.local === undefined);
   const expected = (entry) => (entry.catalog === undefined ? entry.skills : withRequires(entry.skills, (name) => lock.skills[name]?.requires ?? []));
   const plugins = manifestPlugins(manifest);
-  const pluginsDiff = `lock [${lock.plugins.join(", ")}], manifest [${plugins.join(", ")}]`;
+  const pluginsDiff = text("check.pluginsDiff", { lock: lock.plugins.join(", "), manifest: plugins.join(", ") });
   return [
-    ["missing on disk", diff.missing],
-    ["edited by hand", modified],
-    ["sources not installed", manifest.sources.filter((entry) => lockedNames(lock, entry).length === 0).map(sourceLabel)],
-    ["in the lock without a source in the manifest", staleNames(lock, manifest)],
-    ["with a different skills list than the lock", remote.filter((e) => e.skills !== undefined && !sameSet(expected(e), lockedNames(lock, e))).map(sourceKey)],
-    ["lock plugins differ from the manifest", JSON.stringify(plugins) === JSON.stringify(lock.plugins) ? [] : [pluginsDiff]],
+    [text("check.problems.missing"), diff.missing],
+    [text("check.problems.edited"), modified],
+    [text("check.problems.notInstalled"), manifest.sources.filter((entry) => lockedNames(lock, entry).length === 0).map(sourceLabel)],
+    [text("check.problems.stale"), staleNames(lock, manifest)],
+    [text("check.problems.skillsList"), remote.filter((e) => e.skills !== undefined && !sameSet(expected(e), lockedNames(lock, e))).map(sourceKey)],
+    [text("check.problems.plugins"), JSON.stringify(plugins) === JSON.stringify(lock.plugins) ? [] : [pluginsDiff]],
   ].filter(([, names]) => names.length > 0);
 }
 
@@ -672,13 +680,18 @@ function commandCheck(root) {
   const paths = resolvePaths(root, manifest);
   const problems = driftProblems(paths, manifest, readLock(paths));
   if (problems.length === 0) {
-    console.log("✅ Third-party skills match the lock and the manifest.");
+    printBlock({ mood: "ok", title: text("check.ok") }, process.stdout);
     return;
   }
-  console.error("❌ Third-party skills do not match the lock or the manifest (run skills-manager install):");
-  for (const [kind, names] of problems) {
-    console.error(`   ${kind}: ${names.join(", ")}`);
-  }
+  printBlock(
+    {
+      mood: "error",
+      title: text("check.drift"),
+      rows: problems.map(([kind, names]) => [kind, list(names)]),
+      next: { label: text("next.run"), command: "skills-manager install" },
+    },
+    process.stderr,
+  );
   process.exit(1);
 }
 
@@ -703,25 +716,34 @@ function commandList(root, home) {
     }
   }
   for (const [name, skill] of Object.entries(lock.skills)) {
-    const newer = latest.has(skill.source) && latest.get(skill.source) !== skill.commit ? "  (newer version available)" : "";
-    console.log(`${name}  ${skill.source}  ${skill.version ?? "-"} (${skill.commit?.slice(0, SHORT_SHA) ?? LOCAL_SOURCE})${newer}`);
+    const newer = latest.has(skill.source) && latest.get(skill.source) !== skill.commit ? text("list.newer") : "";
+    const row = { name, source: skill.source, version: skill.version ?? "-", commit: skill.commit?.slice(0, SHORT_SHA) ?? LOCAL_SOURCE, newer };
+    process.stdout.write(`${text("list.row", row)}\n`);
   }
 }
 
 /**
  * Runs `session-notice` for a SessionStart hook: the notice goes to stdout and
  * any problem becomes one line on stderr. It never exits non-zero, so a broken
- * manifest cannot break a session start.
+ * manifest or an invalid language cannot break a session start.
+ *
+ * @param args - The command-line arguments, `--lang` included.
  */
-function commandSessionNotice() {
+function commandSessionNotice(args) {
+  const write = (line) => process.stderr.write(`${line}\n`);
   try {
-    const { text, missing } = sessionNotice(git(["rev-parse", "--show-toplevel"], process.cwd()));
-    process.stdout.write(text);
-    for (const name of missing) {
-      console.error(`skills-manager: session-start skill "${name}" is not installed`);
-    }
+    setLang(resolveLang(takeLang(args).flag, process.env));
   } catch (error) {
-    console.error(`skills-manager: ${error.message.split("\n")[0]}`);
+    // WHY: a hook must keep working; the invalid language is reported and Spanish is used.
+    setLang("es");
+    write(text("notice.failed", { message: error.message.split("\n")[0] }));
+  }
+  try {
+    const { text: notice, missing } = sessionNotice(git(["rev-parse", "--show-toplevel"], process.cwd()));
+    process.stdout.write(notice);
+    missing.forEach((name) => write(text("notice.missing", { name })));
+  } catch (error) {
+    write(text("notice.failed", { message: error.message.split("\n")[0] }));
   }
 }
 
@@ -733,7 +755,7 @@ const REPLACE_FLAG = "--replace";
  *
  * @param args - Subcommand arguments.
  * @returns The other arguments and the set of names.
- * @throws {Error} Usage error (exits with 2) if it has no value.
+ * @throws {Error} Usage error (`replace.missing`, exits with 2) if it has no value.
  */
 function takeReplace(args) {
   const rest = [];
@@ -747,7 +769,7 @@ function takeReplace(args) {
     }
     const value = inline ?? args[index + 1];
     if (value === undefined || value.startsWith("--")) {
-      throw Object.assign(new Error(`${REPLACE_FLAG} needs the names of the skills to replace.`), { exitCode: 2 });
+      throw fail("replace.missing", {}, { exitCode: 2 });
     }
     if (inline === undefined) {
       index += 1;
@@ -788,7 +810,7 @@ export async function installAsking(root, opts, ask) {
       }
       const allowed = await ask.askReplace(error.skills);
       if (allowed.length < error.names.length) {
-        throw new Error(`${error.clashes}\nNothing changed.`);
+        throw fail("install.nothingChanged", { clashes: error.clashes });
       }
       allowed.forEach((name) => replace.add(name));
     }
@@ -799,38 +821,110 @@ export async function installAsking(root, opts, ask) {
 const TERMINAL = { get interactive() { return process.stdin.isTTY === true; }, askReplace };
 
 /**
- * Entry point: finds the repo root and dispatches the subcommand. Errors end
- * with their `exitCode` (2 for usage errors) or with 1.
+ * Prints an error as a block on stderr. An error built with `fail` has a `key`: its first
+ * line is the title and the rest are the lines. Any other (git, Node, fs) gets the generic
+ * title and its message whole.
+ *
+ * @param error - What was thrown.
+ */
+function printError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  const [first, ...rest] = message.split("\n");
+  const block =
+    error?.key === undefined
+      ? { mood: "error", title: text("errors.unexpected"), lines: [first, ...rest] }
+      : { mood: "error", title: first, ...(rest.length > 0 ? { lines: rest } : {}) };
+  printBlock(block, process.stderr);
+}
+
+/**
+ * The first word of the command line that is not `--lang` or its value: the subcommand,
+ * found without validating the language (the session hook must never fail on it).
+ *
+ * @param argv - The command-line arguments.
+ * @returns The subcommand, or undefined.
+ */
+function firstCommand(argv) {
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--lang") {
+      i++;
+    } else if (!argv[i].startsWith("--lang=")) {
+      return argv[i];
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Prints how an `install` or `update` ended.
+ *
+ * @param result - What `installAll` returned.
+ * @param dryRun - Whether it was `update --dry-run`.
+ * @param doneKey - Message key of the title when something changed.
+ */
+function reportInstall(result, dryRun, doneKey = "install.done") {
+  const { changed, wrote, changes, noManifest, file } = result;
+  let block;
+  if (noManifest === true) {
+    block = { mood: "question", title: text("install.noManifest", { file }), next: { label: text("next.start"), command: "skills-manager init" } };
+  } else if (dryRun && changes.length > 0) {
+    block = { mood: "question", title: text("install.dryRun"), lines: changes };
+  } else if (!dryRun && (changed || wrote === true || changes.length > 0)) {
+    block = { mood: "ok", title: text(doneKey), lines: changes };
+  } else {
+    block = { mood: "ok", title: text("install.upToDate") };
+  }
+  printBlock(block, process.stdout);
+}
+
+/** Flags that ask for the help instead of running a command. */
+const HELP_FLAGS = ["--help", "-h"];
+
+/**
+ * Entry point: picks the language, finds the repo root and dispatches the subcommand.
+ * Errors end with their `exitCode` (2 for usage errors) or with 1.
  */
 async function main() {
-  const [subcommand, ...args] = process.argv.slice(2);
+  const argv = process.argv.slice(2);
   const home = process.env.SKILLS_HOME ?? homedir();
-  if (subcommand === "session-notice") {
-    commandSessionNotice();
+  if (firstCommand(argv) === "session-notice") {
+    commandSessionNotice(argv);
     return;
   }
   try {
+    const { rest: words, flag } = takeLang(argv);
+    setLang(resolveLang(flag, process.env));
+    if (words.some((arg) => HELP_FLAGS.includes(arg)) || words[0] === "help") {
+      process.stdout.write(`${msg().usage.main}\n`);
+      return;
+    }
+    const [subcommand, ...args] = words;
+    if (subcommand === undefined) {
+      process.stderr.write(`${msg().usage.main}\n`);
+      process.exit(2);
+    }
     const { rest, names: replace } = takeReplace(args);
     if (replace.size > 0 && !["install", "update", "init", "add"].includes(subcommand)) {
-      throw Object.assign(new Error(`${REPLACE_FLAG} goes with install, update, init or add.`), { exitCode: 2 });
+      throw fail("replace.misplaced", {}, { exitCode: 2 });
     }
     const root = git(["rev-parse", "--show-toplevel"], process.cwd());
     if (subcommand === "install") {
-      await installAsking(root, { home, replace }, TERMINAL);
+      reportInstall(await installAsking(root, { home, replace }, TERMINAL), false);
     } else if (subcommand === "update") {
       const name = rest.find((arg) => !arg.startsWith("--"));
-      await installAsking(root, { home, update: name ?? true, dryRun: rest.includes("--dry-run"), replace }, TERMINAL);
+      const dryRun = rest.includes("--dry-run");
+      reportInstall(await installAsking(root, { home, update: name ?? true, dryRun, replace }, TERMINAL), dryRun);
     } else if (subcommand === "check") {
       commandCheck(root);
     } else if (subcommand === "list") {
       commandList(root, home);
     } else if (subcommand === "init" || subcommand === "add") {
-      await commandPick(root, { init: subcommand === "init", args: rest, home, install: () => installAsking(root, { home, replace }, TERMINAL) });
+      await commandPick(root, { init: subcommand === "init", args: rest, home, install: () => installAsking(root, { home, replace }, TERMINAL), report: (result) => reportInstall(result, false, subcommand === "init" ? "pick.initDone" : "pick.addDone") });
     } else {
-      throw new Error(`Unknown subcommand: ${subcommand ?? "(none)"}; use install, update, check, list, session-notice, init or add`);
+      throw fail("errors.unknownCommand", { command: subcommand }, { exitCode: 2 });
     }
   } catch (error) {
-    console.error(`❌ ${error.message}`);
+    printError(error);
     process.exit(error.exitCode ?? 1);
   }
 }

@@ -12,6 +12,9 @@ import { afterEach, beforeEach, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { installAsking, OwnSkillsError } from "../src/cli.mjs";
+import { setLang } from "../src/lang.mjs";
+
+setLang("en");
 
 /** The CLI under test. */
 const CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "src", "cli.mjs");
@@ -116,7 +119,7 @@ function makeOrigin(name) {
  * @returns Exit code and combined output.
  */
 function cli(args) {
-  const env = { ...process.env, SKILLS_HOME: home };
+  const env = { ...process.env, SKILLS_HOME: home, SKILLS_MANAGER_LANG: "en" };
   const result = spawnSync(process.execPath, [CLI, ...args], { cwd: repo, encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] });
   return { status: result.status, output: `${result.stdout}${result.stderr}` };
 }
@@ -225,7 +228,7 @@ describe("catalog install", () => {
     assert.deepEqual(lock().skills.planning.requires, ["narrative-summary"]);
     assert.equal(check.status, 0, check.output);
     assert.equal(again.status, 0, again.output);
-    assert.equal(again.output, "");
+    assert.match(again.output, /up to date/);
     assert.equal(readFileSync(join(repo, LOCK), "utf8"), before);
   });
 
@@ -254,7 +257,7 @@ describe("catalog install", () => {
     const result = cli(["install"]);
 
     assert.equal(result.status, 1);
-    assert.match(result.output, new RegExp(`"code-audit" comes from catalog:file://${origin}, catalog:file://${other}`));
+    assert.match(result.output, new RegExp(`"code-audit" comes from catalog:file://${origin} and catalog:file://${other}`));
   });
 });
 
@@ -291,7 +294,7 @@ describe("catalog sources that share names", () => {
     const result = cli(["install"]);
 
     assert.equal(result.status, 0, result.output);
-    assert.doesNotMatch(result.output, /code-audit: will be removed/);
+    assert.doesNotMatch(result.output, /code-audit: (would be )?removed/);
     assert.match(installed("code-audit"), /other audit/);
     assert.equal(lock().skills["code-audit"].source, `catalog:file://${other}`);
     assert.equal(cli(["check"]).status, 0);
@@ -548,7 +551,7 @@ describe("editable files", () => {
     assert.notEqual(statSync(auditFile("setup.sh")).mode & 0o111, 0);
   });
 
-  test("a new version that ships the file as a normal one warns that the repo's copy will be replaced", () => {
+  test("a new version that ships the file as a normal one warns that the repo's copy would be replaced", () => {
     publishEditable("Conventions: none yet.\n", "v1.0.0");
     setSources([{ catalog: `file://${origin}`, skills: ["code-audit"] }]);
     assert.equal(cli(["install"]).status, 0);
@@ -559,7 +562,7 @@ describe("editable files", () => {
     const result = cli(["update", "--dry-run"]);
 
     assert.equal(result.status, 0, result.output);
-    assert.match(result.output, /code-audit: project\.md is no longer editable; the repo's copy will be replaced by the skill's/);
+    assert.match(result.output, /code-audit: project\.md is no longer editable; the repo's copy would be replaced by the skill's/);
   });
 
   test("editing it does not make check or install fail", () => {
@@ -603,7 +606,7 @@ describe("editable files", () => {
     const result = cli(["check"]);
 
     assert.equal(result.status, 1);
-    assert.match(result.output, /edited by hand: code-audit/);
+    assert.match(result.output, /edited by hand\s+code-audit/);
   });
 
   test("the lock is version 2 only while some skill has editable files", () => {
@@ -618,7 +621,7 @@ describe("editable files", () => {
 
     assert.equal(result.status, 0, result.output);
     assert.equal(withEditable, 2);
-    assert.match(result.output, /code-audit: project\.md is no longer editable; the repo's copy will be removed/);
+    assert.match(result.output, /code-audit: project\.md is no longer editable; the repo's copy was removed/);
     assert.equal(lock().lockVersion, 1);
     assert.equal(lock().skills["code-audit"].editable, undefined);
     assert.equal(existsSync(auditFile("project.md")), false);
@@ -657,7 +660,7 @@ describe("own skills with the name of an incoming one", () => {
     const result = cli(["install"]);
 
     assert.equal(result.status, 1);
-    assert.match(result.output, /"code-audit" .* already exists as an own skill/);
+    assert.match(result.output, /"code-audit" .* already exists as the repo's own skill/);
     assert.match(result.output, /--replace code-audit/);
     assert.equal(installed("code-audit"), "the repo's own audit\n");
     assert.equal(existsSync(join(repo, LOCK)), false);
@@ -682,7 +685,7 @@ describe("own skills with the name of an incoming one", () => {
     const result = cli(["install", "--replace=planning"]);
 
     assert.equal(result.status, 1);
-    assert.match(result.output, /--replace code-audit; replacing deletes each own folder: code-audit \(keeps project\.md\)/);
+    assert.match(result.output, /--replace code-audit; replacing deletes the folder of each own skill: code-audit \(keeps project\.md\)/);
     assert.equal(installed("code-audit"), "the repo's own audit\n");
   });
 
@@ -692,7 +695,7 @@ describe("own skills with the name of an incoming one", () => {
     const result = cli(["update", "--dry-run"]);
 
     assert.equal(result.status, 0, result.output);
-    assert.match(result.output, /code-audit: new \(v1\.0\.0 [0-9a-f]+\), replaces the repo's own folder/);
+    assert.match(result.output, /code-audit: new \(v1\.0\.0 [0-9a-f]+\), would replace the repo's own folder/);
     assert.equal(installed("code-audit"), "the repo's own audit\n");
   });
 
@@ -706,7 +709,7 @@ describe("own skills with the name of an incoming one", () => {
     const result = cli(["install", "--replace", "code-audit"]);
 
     assert.equal(result.status, 1);
-    assert.match(result.output, /--replace code-audit,planning; replacing deletes each own folder: planning \(nothing in its folder is kept\)/);
+    assert.match(result.output, /--replace code-audit,planning; replacing deletes the folder of each own skill: planning \(nothing in its folder is kept\)/);
   });
 
   test("a clash between two catalogs is not offered as a replace, even with an own skill too", () => {
@@ -784,7 +787,7 @@ describe("asking before replacing, as in a terminal", () => {
     ownAudit();
     const { asked, ask } = asker((skills) => skills.map((skill) => skill.name));
 
-    await installAsking(repo, { home, log: () => {} }, ask);
+    await installAsking(repo, { home }, ask);
 
     assert.deepEqual(asked, [[{ name: "code-audit", keeps: ["project.md"] }]]);
     assert.match(installed("code-audit"), /audit v1/);
@@ -795,7 +798,7 @@ describe("asking before replacing, as in a terminal", () => {
     ownAudit();
     const { asked, ask } = asker(() => []);
 
-    await assert.rejects(installAsking(repo, { home, log: () => {} }, ask), (error) => /Nothing changed/.test(error.message) && !/in a terminal/.test(error.message));
+    await assert.rejects(installAsking(repo, { home }, ask), (error) => /Nothing changed/.test(error.message) && !/in a terminal/.test(error.message));
 
     assert.equal(asked.length, 1);
     assert.equal(installed("code-audit"), "the repo's own audit\n");
@@ -805,7 +808,7 @@ describe("asking before replacing, as in a terminal", () => {
     ownAudit();
     const { asked, ask } = asker((skills) => skills.map((skill) => skill.name));
 
-    await assert.rejects(installAsking(repo, { home, log: () => {} }, { ...ask, interactive: false }), OwnSkillsError);
+    await assert.rejects(installAsking(repo, { home }, { ...ask, interactive: false }), OwnSkillsError);
 
     assert.equal(asked.length, 0);
   });

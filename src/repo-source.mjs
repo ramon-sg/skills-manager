@@ -11,6 +11,7 @@ import { existsSync, lstatSync, readdirSync } from "node:fs";
 import path from "node:path";
 
 import { assertRelPath, assertSkillName, insideTree } from "./git.mjs";
+import { fail } from "./lang.mjs";
 import { isRegularFile, readJson, SKILL_FILE } from "./state.mjs";
 
 /** Marketplace file of a repo, relative to its root. */
@@ -26,7 +27,7 @@ const PLUGIN_SKILLS_DIR = "skills";
 const RELATIVE_SOURCE = "./";
 
 /** Note of a plugin whose files live in another repo. */
-const OTHER_REPO_NOTE = "plugin in another repo";
+export const OTHER_REPO_NOTE = "plugin in another repo";
 
 /**
  * Reads a folder as a skill if it is a real folder, inside the tree, with a
@@ -133,7 +134,7 @@ function readMarketplace(tree) {
   try {
     data = readJson(file);
   } catch (error) {
-    throw new Error(`${MARKETPLACE_FILE} is not valid JSON: ${error.message}`);
+    throw fail("errors.repo.invalidJson", { file: MARKETPLACE_FILE, detail: error.params?.detail ?? error.message });
   }
   if (!Array.isArray(data?.plugins)) {
     return [];

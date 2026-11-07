@@ -88,7 +88,7 @@ function commit(root, msg) {
  * @returns Exit code and the two output streams.
  */
 function cli(args) {
-  const env = { ...process.env, SKILLS_HOME: home };
+  const env = { ...process.env, SKILLS_HOME: home, SKILLS_MANAGER_LANG: "en" };
   const result = spawnSync(process.execPath, [CLI, ...args], { cwd: repo, encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }

@@ -9,6 +9,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import { assertRelPath, assertRepo, assertSha, assertSkillName, git } from "./git.mjs";
+import { fail, list } from "./lang.mjs";
 
 /** Prefix of a catalog source in the lock and of a catalog pick in `--select`. */
 export const CATALOG_PREFIX = "catalog:";
@@ -58,12 +59,12 @@ const MAX_DESCRIPTION = 72;
 export function assertCatalogEntry(entry) {
   const unknown = Object.keys(entry).filter((key) => !ENTRY_KEYS.includes(key));
   if (unknown.length > 0) {
-    throw new Error(`Unknown key "${unknown[0]}" in a catalog source; allowed: ${ENTRY_KEYS.join(", ")}`);
+    throw fail("errors.catalog.unknownKey", { key: unknown[0], allowed: list(ENTRY_KEYS) });
   }
   catalogRepo(entry.catalog);
   assertRef(entry.ref, entry.catalog);
   if (!Array.isArray(entry.skills) || entry.skills.length === 0) {
-    throw new Error(`The catalog source ${entry.catalog} needs a non-empty "skills" list.`);
+    throw fail("errors.catalog.needsSkills", { catalog: entry.catalog });
   }
   entry.skills.forEach(assertSkillName);
 }
@@ -79,7 +80,7 @@ export function assertCatalogEntry(entry) {
  */
 export function assertRef(ref, repo) {
   if (ref !== undefined && (typeof ref !== "string" || ref === "" || ref.startsWith("-"))) {
-    throw new Error(`"ref" of ${repo} must be a branch or tag name.`);
+    throw fail("errors.catalog.badRef", { repo: String(repo) });
   }
 }
 
@@ -181,7 +182,7 @@ export function latestRelease(repo, ref) {
     const tagRef = `${TAGS_REF}${ref}`;
     const found = refs.get(tagRef) ?? refs.get(`refs/heads/${ref}`);
     if (found === undefined) {
-      throw new Error(`${repo} has no ${ref}.`);
+      throw fail("errors.git.noRef", { repo, ref });
     }
     return refs.has(tagRef) ? { tag: ref, commit: assertSha(found) } : { commit: assertSha(found) };
   }
@@ -191,7 +192,7 @@ export function latestRelease(repo, ref) {
   }
   const [line] = git(["ls-remote", "--", url, "HEAD"]).split("\n");
   if (!line) {
-    throw new Error(`${repo} has no HEAD.`);
+    throw fail("errors.git.noHead", { repo });
   }
   return { commit: assertSha(line.split("\t")[0]) };
 }
@@ -206,21 +207,21 @@ export function latestRelease(repo, ref) {
  */
 function catalogSkill(skill) {
   if (skill === null || typeof skill !== "object") {
-    throw new Error(`Each skill of ${CATALOG_FILE} must be an object: ${JSON.stringify(skill)}`);
+    throw fail("errors.catalog.skillNotObject", { file: CATALOG_FILE, skill: JSON.stringify(skill) });
   }
   const name = assertSkillName(skill.name);
   const requires = skill.requires ?? [];
   if (!Array.isArray(requires)) {
-    throw new Error(`"requires" of ${name} must be a list.`);
+    throw fail("errors.catalog.requiresNotList", { name });
   }
   requires.forEach(assertSkillName);
   const editable = skill.editable ?? [];
   if (!Array.isArray(editable)) {
-    throw new Error(`"editable" of ${name} must be a list.`);
+    throw fail("errors.catalog.editableNotList", { name });
   }
   const files = editable.map(assertRelPath);
   if (files.includes(SKILL_DEFINITION)) {
-    throw new Error(`"editable" of ${name} cannot include ${SKILL_DEFINITION}.`);
+    throw fail("errors.catalog.editableDefinition", { name, file: SKILL_DEFINITION });
   }
   const category = typeof skill.category === "string" && skill.category !== "" ? skill.category : DEFAULT_CATEGORY;
   return { name, path: assertRelPath(skill.path), category, requires, editable: files };
@@ -238,30 +239,35 @@ function catalogSkill(skill) {
 export function readCatalog(tree) {
   const file = path.join(tree, CATALOG_FILE);
   if (!existsSync(file)) {
-    throw new Error(`The repo has no ${CATALOG_FILE}.`);
+    throw fail("errors.catalog.missing", { file: CATALOG_FILE });
   }
-  const catalog = JSON.parse(readFileSync(file, "utf8"));
+  let catalog;
+  try {
+    catalog = JSON.parse(readFileSync(file, "utf8"));
+  } catch (error) {
+    throw fail("errors.catalog.badJson", { file: CATALOG_FILE, detail: error.message });
+  }
   const version = catalog.catalogVersion ?? CATALOG_VERSION;
   if (!Number.isInteger(version) || version < 1) {
-    throw new Error(`${CATALOG_FILE} has an invalid catalogVersion: ${version}.`);
+    throw fail("errors.catalog.badVersion", { file: CATALOG_FILE, version: String(version) });
   }
   if (version > CATALOG_VERSION) {
-    throw new Error(`${CATALOG_FILE} uses catalogVersion ${version}; upgrade @ramon-sg/skills-manager.`);
+    throw fail("errors.catalog.newerVersion", { file: CATALOG_FILE, version });
   }
   if (!Array.isArray(catalog.skills)) {
-    throw new Error(`${CATALOG_FILE} needs a "skills" list.`);
+    throw fail("errors.catalog.noSkillsList", { file: CATALOG_FILE });
   }
   const skills = new Map();
   for (const skill of catalog.skills.map(catalogSkill)) {
     if (skills.has(skill.name)) {
-      throw new Error(`${CATALOG_FILE} lists "${skill.name}" twice.`);
+      throw fail("errors.catalog.duplicate", { file: CATALOG_FILE, name: skill.name });
     }
     skills.set(skill.name, skill);
   }
   for (const skill of skills.values()) {
     const missing = skill.requires.find((name) => !skills.has(name));
     if (missing !== undefined) {
-      throw new Error(`"${skill.name}" requires "${missing}", which is not in ${CATALOG_FILE}.`);
+      throw fail("errors.catalog.requiresMissing", { name: skill.name, missing, file: CATALOG_FILE });
     }
   }
   return skills;

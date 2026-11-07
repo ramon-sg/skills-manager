@@ -5,14 +5,16 @@
  * `skills-manager init` / `skills-manager add`.
  */
 import assert from "node:assert/strict";
-import { describe, test } from "node:test";
+import { after, before, describe, test } from "node:test";
 
 import {
   diffLock,
   findCollisions,
   hashFiles,
+  keptText,
   listCandidates,
   menuOptions,
+  noteText,
   pickSummary,
   parseManifest,
   parseSelect,
@@ -20,7 +22,11 @@ import {
   resolvePluginSource,
   rewritePluginRefs,
 } from "../src/lib.mjs";
+import { setLang } from "../src/lang.mjs";
+import { es } from "../src/messages/es.mjs";
 import { resolvePaths } from "../src/state.mjs";
+
+setLang("en");
 
 /** Official marketplace repo, where plugins with a relative path live. */
 const MARKETPLACE = "https://github.com/anthropics/claude-plugins-official.git";
@@ -51,7 +57,16 @@ describe("parseManifest", () => {
   });
 
   test("rejects a manifest without a sources list", () => {
-    assert.throws(() => parseManifest("{}"), /sources/);
+    assert.throws(() => parseManifest("{}"), { key: "errors.manifest.noSources" });
+  });
+
+  test("the missing sources list is explained in Spanish by default", () => {
+    setLang("es");
+    try {
+      assert.throws(() => parseManifest("{}"), (error) => error.message.includes("sources") && !error.message.includes("needs"));
+    } finally {
+      setLang("en");
+    }
   });
 });
 
@@ -423,5 +438,53 @@ describe("resolvePaths", () => {
         assert.throws(() => resolvePaths("/repo", { sources: [], paths: { [key]: value } }), /must not point at the repo root|relative/, `${key}=${JSON.stringify(value)}`);
       }
     }
+  });
+});
+
+describe("texts in Spanish", () => {
+  before(() => setLang("es"));
+  after(() => setLang("en"));
+
+  test("keptText names the files it keeps, or says nothing is kept", () => {
+    assert.ok(keptText(["project.md"]).includes("project.md"));
+    assert.ok(keptText([]).includes("no se conserva nada"));
+  });
+
+  test("findCollisions speaks Spanish and keeps the names", () => {
+    const incoming = new Map([["start-issue", "plugin-a"], ["dup", ["x", "y"]]]);
+    const messages = findCollisions(incoming, new Set(["start-issue"]));
+    assert.equal(messages.length, 2);
+    assert.ok(messages.every((message) => !message.includes("already exists") && !message.includes("comes from")));
+    assert.ok(messages[0].includes("start-issue") && messages[0].includes("plugin-a"));
+    assert.ok(messages[1].includes("dup") && messages[1].includes("x") && messages[1].includes("y"));
+  });
+});
+
+describe("menu text in Spanish", () => {
+  before(() => setLang("es"));
+  after(() => setLang("en"));
+
+  test("menuOptions counts skills with explicit plurals and labels own skills", () => {
+    const one = menuOptions([{ id: "p@m", kind: "plugin", skills: ["a"] }]).options[0].label;
+    const two = menuOptions([{ id: "p@m", kind: "plugin", skills: ["a", "b"] }]).options[0].label;
+    assert.equal(one, "p · 1 skill");
+    assert.equal(two, "p · 2 skills");
+    assert.equal(menuOptions([{ id: "mine", kind: "local", skills: ["mine"] }]).options[0].label, `mine · ${es.pick.yours()}`);
+  });
+
+  test("a note is translated in the hidden list; unknown notes pass through", () => {
+    const { hidden } = menuOptions([{ id: "p@m", kind: "plugin", skills: [], note: "not on disk" }]);
+    assert.ok(hidden[0].includes(noteText("not on disk")));
+    assert.ok(!hidden[0].includes("not on disk"));
+    assert.equal(noteText("algo raro"), "algo raro");
+    assert.notEqual(noteText("could not read marketplace m"), "could not read marketplace m");
+    assert.ok(noteText("could not read marketplace m").includes("m"));
+  });
+
+  test("pickSummary uses the language", () => {
+    const candidates = [{ id: "p@m", kind: "plugin", skills: ["a", "b"] }, { id: "mine", kind: "local", skills: ["mine"] }];
+    const lines = pickSummary([{ id: "p@m" }, { id: "mine" }], candidates).split("\n");
+    assert.equal(lines[0], `p ${es.pick.all({ count: 2 })}`);
+    assert.equal(lines[1], `mine (${es.pick.yours()})`);
   });
 });

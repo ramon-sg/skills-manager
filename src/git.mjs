@@ -9,6 +9,8 @@ import { execFileSync } from "node:child_process";
 import { lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 
+import { fail } from "./lang.mjs";
+
 /** A full git sha. */
 const FULL_SHA = /^[0-9a-f]{40}$/;
 
@@ -30,7 +32,12 @@ const SKILL_NAME = /^[A-Za-z0-9][\w.-]*$/;
  * @throws {Error} If git exits badly.
  */
 export function git(args, cwd) {
-  return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  try {
+    return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  } catch (error) {
+    const stderr = typeof error.stderr === "string" ? error.stderr.trim() : "";
+    throw fail("errors.git.failed", { args: args.join(" "), detail: stderr === "" ? error.message : stderr });
+  }
 }
 
 /**
@@ -42,7 +49,7 @@ export function git(args, cwd) {
  */
 export function assertRepo(repo) {
   if (typeof repo !== "string" || !ALLOWED_REPO.test(repo)) {
-    throw new Error(`Repo not allowed (only https:// or file://): ${repo}`);
+    throw fail("errors.git.repoNotAllowed", { repo: String(repo) });
   }
   return repo;
 }
@@ -56,7 +63,7 @@ export function assertRepo(repo) {
  */
 export function assertSha(sha) {
   if (typeof sha !== "string" || !FULL_SHA.test(sha)) {
-    throw new Error(`Not a full sha: ${sha}`);
+    throw fail("errors.git.notFullSha", { sha: String(sha) });
   }
   return sha;
 }
@@ -70,7 +77,7 @@ export function assertSha(sha) {
  */
 export function assertRelPath(rel) {
   if (typeof rel !== "string" || path.isAbsolute(rel) || rel.split(/[\\/]/).includes("..")) {
-    throw new Error(`The path must be relative and without "..": ${rel}`);
+    throw fail("errors.git.pathNotRelative", { rel: String(rel) });
   }
   return path.posix.normalize(rel);
 }
@@ -84,7 +91,7 @@ export function assertRelPath(rel) {
  */
 export function assertSkillName(name) {
   if (typeof name !== "string" || !SKILL_NAME.test(name)) {
-    throw new Error(`Invalid skill name: ${name}`);
+    throw fail("errors.git.invalidSkillName", { name: String(name) });
   }
   return name;
 }
@@ -101,7 +108,7 @@ export function insideTree(tree, rel) {
   const base = realpathSync(tree);
   const full = realpathSync(path.join(tree, rel));
   if (full !== base && !full.startsWith(`${base}${path.sep}`)) {
-    throw new Error(`"${rel}" escapes the origin repo (symlink pointing outside).`);
+    throw fail("errors.git.escapesRepo", { rel });
   }
   return full;
 }
@@ -148,7 +155,7 @@ export function latestCommit(resolved) {
   const ref = resolved.ref ?? "HEAD";
   const [line] = git(["ls-remote", "--", assertRepo(resolved.repo), ref]).split("\n");
   if (!line) {
-    throw new Error(`${resolved.repo} has no ${ref}.`);
+    throw fail("errors.git.noRef", { repo: resolved.repo, ref });
   }
   return assertSha(line.split("\t")[0]);
 }
@@ -166,7 +173,7 @@ export function walk(dir, prefix = "") {
     const rel = prefix ? `${prefix}/${dirent.name}` : dirent.name;
     const full = path.join(dir, dirent.name);
     if (dirent.isSymbolicLink()) {
-      throw new Error(`"${rel}" is a symlink: skills cannot contain symlinks.`);
+      throw fail("errors.git.symlink", { rel });
     }
     if (dirent.isDirectory()) {
       return walk(full, rel);

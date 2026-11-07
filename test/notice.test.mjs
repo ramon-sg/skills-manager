@@ -103,8 +103,8 @@ describe("parseManifest sessionStart and paths", () => {
   });
 
   test("rejects an invalid sessionStart", () => {
-    assert.throws(() => parseManifest('{"sources":[],"sessionStart":"x"}'), /sessionStart/);
-    assert.throws(() => parseManifest('{"sources":[],"sessionStart":["../x"]}'), /Invalid skill name/);
+    assert.throws(() => parseManifest('{"sources":[],"sessionStart":"x"}'), { key: "errors.manifest.sessionStartNotList" });
+    assert.throws(() => parseManifest('{"sources":[],"sessionStart":["../x"]}'), { key: "errors.git.invalidSkillName" });
   });
 
   test("accepts valid ones", () => {
@@ -121,7 +121,7 @@ describe("session-notice CLI", () => {
    */
   function run() {
     spawnSync("git", ["init", "-q"], { cwd: root });
-    return spawnSync(process.execPath, [CLI, "session-notice"], { cwd: root, encoding: "utf8" });
+    return spawnSync(process.execPath, [CLI, "session-notice"], { cwd: root, encoding: "utf8", env: { ...process.env, SKILLS_MANAGER_LANG: "en" } });
   }
 
   test("prints the envelope and warns about missing skills, exit 0", () => {

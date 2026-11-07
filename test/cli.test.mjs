@@ -87,7 +87,7 @@ function publish(sha) {
  * @returns Exit code and combined output.
  */
 function cli(args) {
-  const env = { ...process.env, SKILLS_HOME: home };
+  const env = { ...process.env, SKILLS_HOME: home, SKILLS_MANAGER_LANG: "en" };
   const result = spawnSync(process.execPath, [CLI, ...args], { cwd: repo, encoding: "utf8", env });
   return { status: result.status, output: `${result.stdout}${result.stderr}` };
 }
@@ -165,7 +165,7 @@ function isExecutable(file) {
 
 /** Message for a hand-edited skill: both ways out, the lock version or the latest published. */
 const EDITED_ALPHA =
-  /"alpha" was edited by hand: to go back to the lock version, rm -rf \.agents\/skills\/alpha && skills-manager install; to overwrite it with the latest published, skills-manager update alpha/;
+  /"alpha" was edited by hand\n[\s\S]*rm -rf \.agents\/skills\/alpha && skills-manager install\n[\s\S]*skills-manager update alpha/;
 
 /** Initial commit of the origin. */
 let firstSha;
@@ -249,10 +249,10 @@ describe("install", () => {
     const link = join(base, "bin", "skills-manager");
     mkdirSync(dirname(link), { recursive: true });
     symlinkSync(CLI, link);
-    const env = { ...process.env, SKILLS_HOME: home };
+    const env = { ...process.env, SKILLS_HOME: home, SKILLS_MANAGER_LANG: "en" };
     const result = spawnSync(process.execPath, [link, "check"], { cwd: repo, encoding: "utf8", env });
     assert.equal(result.status, 1);
-    assert.match(`${result.stdout}${result.stderr}`, /edited by hand: alpha/);
+    assert.match(`${result.stdout}${result.stderr}`, /edited by hand\s+alpha/);
   });
 
   test("a hand-edited skill makes check and install fail", () => {
@@ -291,7 +291,7 @@ describe("install", () => {
     chmodSync(join(repo, ".agents/skills/beta/run.sh"), 0o644);
     const check = cli(["check"]);
     assert.equal(check.status, 1);
-    assert.match(check.output, /edited by hand: beta/);
+    assert.match(check.output, /edited by hand\s+beta/);
   });
 
   test("a third-party skill named like an own one stops with exclude", () => {
@@ -540,7 +540,7 @@ describe("update --dry-run", () => {
     const result = cli(["update", "--dry-run"]);
     assert.equal(result.status, 0, result.output);
     assert.match(result.output, /gamma: new/);
-    assert.match(result.output, /beta: will be removed/);
+    assert.match(result.output, /beta: would be removed/);
     assert.equal(read(LOCK), lockBefore);
     assert.equal(existsSync(join(repo, ".agents/skills/gamma")), false);
     assert.equal(existsSync(join(repo, ".agents/skills/beta")), true);
@@ -551,7 +551,7 @@ describe("update --dry-run", () => {
     write(join(repo, ".agents/skills/alpha/SKILL.md"), "edited\n");
     const result = cli(["update", "--dry-run"]);
     assert.equal(result.status, 0, result.output);
-    assert.match(result.output, /alpha: edited by hand, will be overwritten/);
+    assert.match(result.output, /alpha: edited by hand, would be overwritten/);
     assert.doesNotMatch(result.output, /beta: edited by hand/);
     assert.equal(read(".agents/skills/alpha/SKILL.md"), "edited\n");
   });
@@ -674,15 +674,21 @@ describe("init and add", () => {
     assert.equal(cli(["add", "--select", "my-skill"]).status, 0);
     rmSync(join(repo, ".agents/skills/my-skill"), { recursive: true });
     assert.equal(cli(["check"]).status, 1);
-    assert.equal(cli(["install"]).status, 0);
+    const restored = cli(["install"]);
+    assert.equal(restored.status, 0);
+    assert.match(restored.output, /Done: the changes were applied/);
+    assert.doesNotMatch(restored.output, /up to date/);
     assert.equal(read(".agents/skills/my-skill/SKILL.md"), "Mine.\n");
     write(join(repo, ".agents/skills/my-skill/SKILL.md"), "edited\n");
     write(join(home, ".claude/skills/my-skill/SKILL.md"), "Mine 2.\n");
     const dry = cli(["update", "my-skill", "--dry-run"]);
     assert.equal(dry.status, 0, dry.output);
-    assert.match(dry.output, /my-skill: edited by hand, will be overwritten/);
+    assert.match(dry.output, /my-skill: edited by hand, would be overwritten/);
     const result = cli(["update", "my-skill"]);
     assert.equal(result.status, 0, result.output);
+    assert.match(result.output, /Done: the changes were applied/);
+    assert.match(result.output, /my-skill: edited by hand, overwritten/);
+    assert.doesNotMatch(result.output, /up to date/);
     assert.equal(read(".agents/skills/my-skill/SKILL.md"), "Mine 2.\n");
   });
 

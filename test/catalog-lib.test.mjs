@@ -11,7 +11,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { assertCatalogEntry, highestRelease, readCatalog, skillDescription, withRequires } from "../src/catalog.mjs";
+import { setLang } from "../src/lang.mjs";
 import { catalogMenu, mergeSources, parseManifest, parseSelect } from "../src/lib.mjs";
+
+setLang("en");
 
 /**
  * Builds a catalog candidate.
@@ -95,10 +98,10 @@ describe("readCatalog", () => {
 describe("catalog sources in the manifest", () => {
   test("a catalog source needs a skills list and no unknown keys", () => {
     assert.doesNotThrow(() => parseManifest(JSON.stringify({ sources: [{ catalog: "o/r", ref: "v1.0.0", skills: ["a"] }] })));
-    assert.throws(() => parseManifest(JSON.stringify({ sources: [{ catalog: "o/r" }] })), /non-empty "skills"/);
-    assert.throws(() => assertCatalogEntry({ catalog: "o/r", skills: ["a"], path: "x" }), /Unknown key "path"/);
-    assert.throws(() => assertCatalogEntry({ catalog: "ssh://h/r", skills: ["a"] }), /Repo not allowed/);
-    assert.throws(() => assertCatalogEntry({ catalog: "o/r", ref: "--upload-pack=x", skills: ["a"] }), /branch or tag/);
+    assert.throws(() => parseManifest(JSON.stringify({ sources: [{ catalog: "o/r" }] })), { key: "errors.catalog.needsSkills" });
+    assert.throws(() => assertCatalogEntry({ catalog: "o/r", skills: ["a"], path: "x" }), { key: "errors.catalog.unknownKey" });
+    assert.throws(() => assertCatalogEntry({ catalog: "ssh://h/r", skills: ["a"] }), { key: "errors.git.repoNotAllowed" });
+    assert.throws(() => assertCatalogEntry({ catalog: "o/r", ref: "--upload-pack=x", skills: ["a"] }), { key: "errors.catalog.badRef" });
   });
 
   test("--select takes a catalog pick whole, colons included", () => {

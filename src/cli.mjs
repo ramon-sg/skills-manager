@@ -35,8 +35,9 @@ import { CATALOG_PREFIX, catalogRepo, latestRelease, TEMPLATE_SUFFIX, withRequir
 import { resolveCatalogPlan } from "./catalog-plan.mjs";
 import { printBlock } from "./banner.mjs";
 import { fail, list, msg, resolveLang, setLang, takeLang, text } from "./lang.mjs";
-import { askReplace } from "./prompt.mjs";
+import { askReplace, askRunner } from "./prompt.mjs";
 import { pluginWithPath } from "./repo-source.mjs";
+import { planRunnerEntry, writeRunnerEntry } from "./runner-entry.mjs";
 import { assertRelPath, assertRepo, assertSkillName, fetchSource, git, insideTree, latestCommit, walk } from "./git.mjs";
 import { diffLock, findCollisions, hashFiles, keptText, resolvePluginSource, rewritePluginRefs } from "./lib.mjs";
 import { sessionNotice } from "./notice.mjs";
@@ -817,8 +818,8 @@ export async function installAsking(root, opts, ask) {
   }
 }
 
-/** How the CLI asks: the process's terminal and the questions of `prompt.mjs`. */
-const TERMINAL = { get interactive() { return process.stdin.isTTY === true; }, askReplace };
+/** How the CLI asks: the process's terminal and the questions of `prompt.mjs` (replacing own skills, and the runner). */
+const TERMINAL = { get interactive() { return process.stdin.isTTY === true; }, askReplace, askRunner };
 
 /**
  * Prints an error as a block on stderr. An error built with `fail` has a `key`: its first
@@ -909,17 +910,25 @@ async function main() {
     }
     const root = git(["rev-parse", "--show-toplevel"], process.cwd());
     if (subcommand === "install") {
-      reportInstall(await installAsking(root, { home, replace }, TERMINAL), false);
+      const runnerEntry = await planRunnerEntry(root, TERMINAL);
+      const result = await installAsking(root, { home, replace }, TERMINAL);
+      writeRunnerEntry(root, runnerEntry);
+      reportInstall(result, false);
     } else if (subcommand === "update") {
       const name = rest.find((arg) => !arg.startsWith("--"));
       const dryRun = rest.includes("--dry-run");
-      reportInstall(await installAsking(root, { home, update: name ?? true, dryRun, replace }, TERMINAL), dryRun);
+      const runnerEntry = dryRun ? null : await planRunnerEntry(root, TERMINAL);
+      const result = await installAsking(root, { home, update: name ?? true, dryRun, replace }, TERMINAL);
+      if (runnerEntry !== null) {
+        writeRunnerEntry(root, runnerEntry);
+      }
+      reportInstall(result, dryRun);
     } else if (subcommand === "check") {
       commandCheck(root);
     } else if (subcommand === "list") {
       commandList(root, home);
     } else if (subcommand === "init" || subcommand === "add") {
-      await commandPick(root, { init: subcommand === "init", args: rest, home, install: () => installAsking(root, { home, replace }, TERMINAL), report: (result) => reportInstall(result, false, subcommand === "init" ? "pick.initDone" : "pick.addDone") });
+      await commandPick(root, { init: subcommand === "init", args: rest, home, install: () => installAsking(root, { home, replace }, TERMINAL), report: (result) => reportInstall(result, false, subcommand === "init" ? "pick.initDone" : "pick.addDone"), planRunner: () => planRunnerEntry(root, TERMINAL) });
     } else {
       throw fail("errors.unknownCommand", { command: subcommand }, { exitCode: 2 });
     }

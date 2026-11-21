@@ -182,3 +182,18 @@ export async function askReplace(skills) {
   }
   return allowed;
 }
+
+/**
+ * Asks, when `.agents/runner.json` is missing and Bun is not installed, whether to run
+ * the tools with Node or to quit and install Bun.
+ *
+ * @returns `"node"`, or `null` to quit.
+ * @throws {Error} If cancelled.
+ */
+export async function askRunner() {
+  const answer = orCancel(await select({
+    message: `${text("runner.question")} ${text("prompt.selectKeys")}`,
+    options: [{ value: "node", label: text("runner.useNode") }, { value: "exit", label: text("runner.exit") }],
+  }));
+  return answer === "node" ? "node" : null;
+}

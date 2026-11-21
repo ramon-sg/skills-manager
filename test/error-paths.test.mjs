@@ -124,7 +124,7 @@ describe("init whose copy of the bundled skill fails", () => {
       return { changed: true, wrote: true, changes: [] };
     };
     try {
-      await assert.rejects(commandPick(repo, { init: true, args: ["--select", "beta"], home, install, report: () => { reported = true; } }));
+      await assert.rejects(commandPick(repo, { init: true, args: ["--select", "beta"], home, install, report: () => { reported = true; }, planRunner: async () => ({ changed: false, warning: null }) }));
       assert.equal(reported, false);
     } finally {
       chmodSync(skillsDir, 0o755);

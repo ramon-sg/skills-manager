@@ -187,6 +187,14 @@ export const en = {
     row: ({ name, source, version, commit, newer }) => `${name}  ${source}  ${version} (${commit})${newer}`,
     newer: () => "  (newer version available)",
   },
+  runner: {
+    noBun: () => 'Bun is not installed: the tools will run with Node (npx). Install Bun and set "runner": "bun" in .agents/runner.json to change it.',
+    question: () => "Bun is not installed: use Node, or quit to install Bun?",
+    useNode: () => "Use Node (npx)",
+    exit: () => "Quit to install Bun",
+    declined: () => "Install Bun and run the command again; nothing was changed.",
+    invalid: ({ file }) => `${file} is not valid`,
+  },
   notice: {
     failed: ({ message }) => `skills-manager: ${message}`,
     missing: ({ name }) => `skills-manager: session-start skill "${name}" is not installed`,

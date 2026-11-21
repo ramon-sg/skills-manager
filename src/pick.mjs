@@ -17,6 +17,7 @@ import { assertRelPath, fetchSource, insideTree } from "./git.mjs";
 import { fail, text } from "./lang.mjs";
 import { listCandidates, mergeSources, parseSelect, picksToSources, REPO_PLUGIN, REPO_SKILL } from "./lib.mjs";
 import { readRepoSkills } from "./repo-source.mjs";
+import { writeRunnerEntry } from "./runner-entry.mjs";
 import { askInteractively } from "./prompt.mjs";
 import {
   isRegularFile,
@@ -315,14 +316,15 @@ async function choose(args, candidates, options) {
  * repos, or the `--repo` repo), adds it to the manifest and installs.
  *
  * @param root - Repo root.
- * @param opts - `{ init, args, home, install, report }`; `install` runs the installation (it may
+ * @param opts - `{ init, args, home, install, report, planRunner }`; `install` runs the installation (it may
  * ask before replacing an own skill, so it is awaited) and returns its result; `report` prints
- * that result once everything, including the copy of the bundled skill, has succeeded.
+ * that result once everything, including the copy of the bundled skill, has succeeded;
+ * `planRunner` works out the `.agents/runner.json` entry (it may ask), written before `report`.
  * @throws {Error} Usage error (exits with 2) on a bad combination of options; if
  * `init` finds a manifest, `add` does not find one, the
  * pick is not valid or the installation fails (with the manifest already restored).
  */
-export async function commandPick(root, { init, args, home, install, report }) {
+export async function commandPick(root, { init, args, home, install, report, planRunner }) {
   const catalogs = flagValues(args, CATALOG_FLAG);
   const from = { catalogs, repo: repoOption(args, catalogs) };
   const file = resolvePaths(root).manifest;
@@ -339,6 +341,7 @@ export async function commandPick(root, { init, args, home, install, report }) {
     console.log(JSON.stringify(candidates, null, 2));
     return;
   }
+  const runnerEntry = await planRunner();
   const sources = picksToSources(await choose(args, candidates, from.repo === undefined ? {} : { empty: "pick.nothingNew" }), candidates);
   const previous = existsSync(file) ? readFileSync(file, "utf8") : undefined;
   writeManifest(root, { ...manifest, sources: mergeSources(manifest?.sources ?? [], sources) });
@@ -356,5 +359,6 @@ export async function commandPick(root, { init, args, home, install, report }) {
   if (init) {
     copyBundledSkill(resolvePaths(root, readManifest(root)).skillsDir);
   }
+  writeRunnerEntry(root, runnerEntry);
   report(result);
 }

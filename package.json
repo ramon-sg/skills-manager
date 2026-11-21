@@ -4,7 +4,7 @@
   "description": "Manage third-party agent skills vendored in a repository.",
   "type": "module",
   "license": "MIT",
-  "author": "Ram\u00f3n Soto",
+  "author": "Ramón Soto",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ramon-sg/skills-manager.git"
@@ -37,9 +37,10 @@
     "provenance": true
   },
   "scripts": {
-    "test": "node --test test/banner.test.mjs test/messages.test.mjs test/lib.test.mjs test/catalog-lib.test.mjs test/notice.test.mjs test/cli.test.mjs test/cli-lang.test.mjs test/prompt.test.mjs test/error-paths.test.mjs test/catalog.test.mjs test/repo-source.test.mjs test/repo.test.mjs test/pack.test.mjs test/no-project-names.test.mjs test/no-loose-text.test.mjs"
+    "test": "node --test test/banner.test.mjs test/messages.test.mjs test/lib.test.mjs test/catalog-lib.test.mjs test/notice.test.mjs test/runner-entry.test.mjs test/cli.test.mjs test/cli-lang.test.mjs test/prompt.test.mjs test/error-paths.test.mjs test/catalog.test.mjs test/repo-source.test.mjs test/repo.test.mjs test/pack.test.mjs test/no-project-names.test.mjs test/no-loose-text.test.mjs"
   },
   "dependencies": {
-    "@clack/prompts": "1.8.1"
+    "@clack/prompts": "1.8.1",
+    "@ramon-sg/runner": "1.0.0"
   }
 }

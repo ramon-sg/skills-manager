@@ -81,13 +81,45 @@ function publish(sha) {
 }
 
 /**
+ * A folder with a fake `bunx` that exits 0, so `chooseRunner` sees Bun installed
+ * without running the real one.
+ *
+ * @returns Its path.
+ */
+function binWithBun() {
+  const bin = join(base, "bin-bun");
+  if (!existsSync(bin)) {
+    write(join(bin, "bunx"), "#!/bin/sh\nexit 0\n");
+    chmodSync(join(bin, "bunx"), 0o755);
+  }
+  return bin;
+}
+
+/**
+ * A folder holding only `git`, to stand for a machine without Bun.
+ *
+ * @returns Its path.
+ */
+function binWithoutBun() {
+  const bin = join(base, "bin-plain");
+  if (!existsSync(bin)) {
+    mkdirSync(bin);
+    const found = spawnSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).stdout.trim();
+    symlinkSync(found, join(bin, "git"));
+  }
+  return bin;
+}
+
+/**
  * Runs the CLI in the temporary repo, with the fake home.
  *
  * @param args - CLI arguments.
+ * @param opts - `bun`: whether a (fake) `bunx` is on `PATH` (default true; false leaves only
+ * `git`); `lang`: `SKILLS_MANAGER_LANG` (default `en`).
  * @returns Exit code and combined output.
  */
-function cli(args) {
-  const env = { ...process.env, SKILLS_HOME: home, SKILLS_MANAGER_LANG: "en" };
+function cli(args, { bun = true, lang = "en" } = {}) {
+  const env = { ...process.env, SKILLS_HOME: home, SKILLS_MANAGER_LANG: lang, PATH: bun ? `${binWithBun()}:${process.env.PATH}` : binWithoutBun() };
   const result = spawnSync(process.execPath, [CLI, ...args], { cwd: repo, encoding: "utf8", env });
   return { status: result.status, output: `${result.stdout}${result.stderr}` };
 }
@@ -766,5 +798,84 @@ describe("init and add", () => {
     const result = cli(["add"]);
     assert.equal(result.status, 2);
     assert.match(result.output, /--select/);
+  });
+});
+
+describe(".agents/runner.json", () => {
+  /** The entry this package writes. */
+  const PACKAGE = "@ramon-sg/skills-manager";
+
+  /** The version of the package under test. */
+  const VERSION = JSON.parse(readFileSync(join(dirname(CLI), "..", "package.json"), "utf8")).version;
+
+  /**
+   * Reads `.agents/runner.json` of the temporary repo.
+   *
+   * @returns The parsed file.
+   */
+  function runner() {
+    return JSON.parse(read(".agents/runner.json"));
+  }
+
+  test("init in an empty repo writes runner.json and nothing in package.json", () => {
+    installMachine();
+    rmSync(join(repo, ".agents/skills.json"));
+    const result = cli(["init", "--select", "my-skill"]);
+    assert.equal(result.status, 0, result.output);
+    assert.equal(runner().runner, "bun");
+    assert.deepEqual(runner().tools, { [PACKAGE]: VERSION });
+    assert.equal(existsSync(join(repo, "package.json")), false);
+  });
+
+  test("package.json stays byte-identical", () => {
+    installMachine();
+    rmSync(join(repo, ".agents/skills.json"));
+    const pkg = '{\n  "devDependencies": { "@ramon-sg/skills-manager": "1.4.0" }\n}\n';
+    write(join(repo, "package.json"), pkg);
+    assert.equal(cli(["init", "--select", "my-skill"]).status, 0);
+    assert.equal(cli(["install"]).status, 0);
+    assert.equal(read("package.json"), pkg);
+  });
+
+  test("install and update move the entry up", () => {
+    write(join(repo, ".agents/runner.json"), JSON.stringify({ runner: "node", tools: { [PACKAGE]: "1.0.0" } }));
+    assert.equal(cli(["install"]).status, 0);
+    assert.deepEqual(runner(), { $schema: runner().$schema, runner: "node", tools: { [PACKAGE]: VERSION } });
+    write(join(repo, ".agents/runner.json"), JSON.stringify({ runner: "node", tools: { [PACKAGE]: "1.0.0" } }));
+    assert.equal(cli(["update"]).status, 0);
+    assert.equal(runner().tools[PACKAGE], VERSION);
+  });
+
+  test("read-only commands never write runner.json", () => {
+    installMachine();
+    assert.equal(cli(["install"]).status, 0);
+    rmSync(join(repo, ".agents/runner.json"));
+    for (const args of [["check"], ["list"], ["update", "--dry-run"], ["add", "--candidates"], ["session-notice"], ["--help"]]) {
+      cli(args);
+      assert.equal(existsSync(join(repo, ".agents/runner.json")), false, args.join(" "));
+    }
+    rmSync(join(repo, ".agents/skills.json"));
+    cli(["init", "--candidates"]);
+    assert.equal(existsSync(join(repo, ".agents/runner.json")), false, "init --candidates");
+  });
+
+  test("a broken runner.json stops before writing anything", () => {
+    installMachine();
+    rmSync(join(repo, ".agents/skills.json"));
+    write(join(repo, ".agents/runner.json"), "{");
+    const result = cli(["init", "--select", "my-skill"]);
+    assert.equal(result.status, 1);
+    assert.match(result.output, /\.agents\/runner\.json/);
+    assert.equal(existsSync(join(repo, ".agents/skills.json")), false);
+    assert.equal(existsSync(join(repo, ".agents/skills")), false);
+  });
+
+  test("without bun and no terminal, init picks node and warns in Spanish", () => {
+    installMachine();
+    rmSync(join(repo, ".agents/skills.json"));
+    const result = cli(["init", "--select", "my-skill"], { bun: false, lang: "es" });
+    assert.equal(result.status, 0, result.output);
+    assert.equal(runner().runner, "node");
+    assert.match(result.output, /Bun no está instalado/);
   });
 });

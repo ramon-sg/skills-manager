@@ -845,7 +845,16 @@ describe(".agents/runner.json", () => {
     assert.equal(read("package.json"), pkg);
   });
 
+  test("install and update without a manifest write no runner.json", () => {
+    rmSync(join(repo, ".agents/skills.json"));
+    for (const args of [["install"], ["update"], ["update", "foo"]]) {
+      cli(args);
+      assert.equal(existsSync(join(repo, ".agents/runner.json")), false, args.join(" "));
+    }
+  });
+
   test("install and update move the entry up", () => {
+    installMachine();
     write(join(repo, ".agents/runner.json"), JSON.stringify({ runner: "node", tools: { [PACKAGE]: "1.0.0" } }));
     assert.equal(cli(["install"]).status, 0);
     assert.deepEqual(runner(), { $schema: runner().$schema, runner: "node", tools: { [PACKAGE]: VERSION } });

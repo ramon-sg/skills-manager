@@ -909,15 +909,19 @@ async function main() {
       throw fail("replace.misplaced", {}, { exitCode: 2 });
     }
     const root = git(["rev-parse", "--show-toplevel"], process.cwd());
+    // NOTE: without a manifest install and update do nothing, so they leave no runner.json either.
+    const hasManifest = () => readManifest(root) !== undefined;
     if (subcommand === "install") {
-      const runnerEntry = await planRunnerEntry(root, TERMINAL);
+      const runnerEntry = hasManifest() ? await planRunnerEntry(root, TERMINAL) : null;
       const result = await installAsking(root, { home, replace }, TERMINAL);
-      writeRunnerEntry(root, runnerEntry);
+      if (runnerEntry !== null) {
+        writeRunnerEntry(root, runnerEntry);
+      }
       reportInstall(result, false);
     } else if (subcommand === "update") {
       const name = rest.find((arg) => !arg.startsWith("--"));
       const dryRun = rest.includes("--dry-run");
-      const runnerEntry = dryRun ? null : await planRunnerEntry(root, TERMINAL);
+      const runnerEntry = dryRun || !hasManifest() ? null : await planRunnerEntry(root, TERMINAL);
       const result = await installAsking(root, { home, update: name ?? true, dryRun, replace }, TERMINAL);
       if (runnerEntry !== null) {
         writeRunnerEntry(root, runnerEntry);

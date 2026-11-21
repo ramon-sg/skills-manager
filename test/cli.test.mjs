@@ -650,6 +650,14 @@ describe("init and add", () => {
     assert.match(again.output, /already exists; use skills-manager add/);
   });
 
+  test("the bundled skill names no fixed runner", () => {
+    const skill = readFileSync(join(dirname(CLI), "..", "skills", "manage-skills", "SKILL.md"), "utf8");
+    assert.doesNotMatch(skill, /npx @ramon-sg|npx skills-manager|--no-install/);
+    assert.ok(skill.includes("bunx --bun @ramon-sg/skills-manager@<version>"));
+    assert.ok(skill.includes("npx --yes @ramon-sg/skills-manager@<version>"));
+    assert.ok(skill.includes(".agents/runner.json"));
+  });
+
   test("init copies the bundled manage-skills skill and never overwrites an existing one", () => {
     installMachine();
     rmSync(join(repo, ".agents/skills.json"));

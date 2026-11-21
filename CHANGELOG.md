@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Fixed
+
+- `.agents/runner.json` keeps the `$schema` it already had instead of switching to the
+  one of the bundled `@ramon-sg/runner`.
+- `update <name>` with a name that is not in the lock fails before asking about the
+  runner.
+- A `.agents/runner.json` that cannot be read or written fails with a message that
+  names it, instead of an unexpected error.
+
+### Changed
+
+- `manage-skills` says to ask which version to use when `.agents/runner.json` or its
+  entry is missing.
+- The README says to keep the version of the `SessionStart` hook in step with
+  `.agents/runner.json`.
+
 ## 1.5.0
 
 ### Added

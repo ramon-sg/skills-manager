@@ -868,11 +868,12 @@ describe(".agents/runner.json", () => {
     assert.equal(cli(["install"]).status, 0);
     rmSync(join(repo, ".agents/runner.json"));
     for (const args of [["check"], ["list"], ["update", "--dry-run"], ["add", "--candidates"], ["session-notice"], ["--help"]]) {
-      cli(args);
+      const result = cli(args);
+      assert.equal(result.status, 0, `${args.join(" ")}\n${result.output}`);
       assert.equal(existsSync(join(repo, ".agents/runner.json")), false, args.join(" "));
     }
     rmSync(join(repo, ".agents/skills.json"));
-    cli(["init", "--candidates"]);
+    assert.equal(cli(["init", "--candidates"]).status, 0);
     assert.equal(existsSync(join(repo, ".agents/runner.json")), false, "init --candidates");
   });
 
@@ -885,6 +886,27 @@ describe(".agents/runner.json", () => {
     assert.match(result.output, /\.agents\/runner\.json/);
     assert.equal(existsSync(join(repo, ".agents/skills.json")), false);
     assert.equal(existsSync(join(repo, ".agents/skills")), false);
+  });
+
+  for (const [label, content] of [["an unknown runner", '{"runner":"deno"}'], ["a version range", '{"tools":{"@ramon-sg/skills-manager":"^1.4.0"}}']]) {
+    test(`install with ${label} in runner.json fails before writing anything`, () => {
+      write(join(repo, ".agents/runner.json"), content);
+      const result = cli(["install"]);
+      assert.equal(result.status, 1);
+      assert.match(result.output, /\.agents\/runner\.json/);
+      assert.equal(existsSync(join(repo, LOCK)), false);
+      assert.equal(existsSync(join(repo, ".agents/skills")), false);
+      assert.equal(read(".agents/runner.json"), content);
+    });
+  }
+
+  test("update of a skill not in the lock fails and writes no runner.json", () => {
+    assert.equal(cli(["install"]).status, 0);
+    rmSync(join(repo, ".agents/runner.json"));
+    const result = cli(["update", "ghost"]);
+    assert.equal(result.status, 1);
+    assert.match(result.output, /ghost/);
+    assert.equal(existsSync(join(repo, ".agents/runner.json")), false);
   });
 
   test("without bun and no terminal, init picks node and warns in Spanish", () => {

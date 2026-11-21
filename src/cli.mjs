@@ -516,9 +516,7 @@ export function installAll(root, { home, update, dryRun = false, replace = new S
   }
   const paths = resolvePaths(root, manifest);
   const lock = readLock(paths);
-  if (typeof update === "string" && !Object.hasOwn(lock.skills, update)) {
-    throw fail("install.notInLock", { name: update, file: path.relative(root, paths.lock) });
-  }
+  assertInLock(root, paths, lock, update);
   const stale = staleNames(lock, manifest);
   assertUntouched(paths, lock, stale);
   const context = { paths, lock, home, marketplaces: loadMarketplaces(home), update, siblings: repoSiblings(manifest) };
@@ -781,6 +779,21 @@ function takeReplace(args) {
 }
 
 /**
+ * Fails when `update <name>` names a skill the lock does not have.
+ *
+ * @param root - Repo root.
+ * @param paths - Resolved paths of the repo.
+ * @param lock - The lock.
+ * @param update - `true` (all), or the name to update.
+ * @throws {Error} `install.notInLock` if `update` is a name not in the lock.
+ */
+function assertInLock(root, paths, lock, update) {
+  if (typeof update === "string" && !Object.hasOwn(lock.skills, update)) {
+    throw fail("install.notInLock", { name: update, file: path.relative(root, paths.lock) });
+  }
+}
+
+/**
  * Runs `installAll`, and if it would replace own skills, asks in a terminal whether to
  * replace each one and runs it again with the ones allowed. Without a terminal it stops,
  * saying to use `--replace`. A dry run asks nothing: it shows what it would replace.
@@ -921,7 +934,14 @@ async function main() {
     } else if (subcommand === "update") {
       const name = rest.find((arg) => !arg.startsWith("--"));
       const dryRun = rest.includes("--dry-run");
-      const runnerEntry = dryRun || !hasManifest() ? null : await planRunnerEntry(root, TERMINAL);
+      const manifest = readManifest(root);
+      let runnerEntry = null;
+      if (!dryRun && manifest !== undefined) {
+        // NOTE: an unknown name fails here, before the runner question.
+        const paths = resolvePaths(root, manifest);
+        assertInLock(root, paths, readLock(paths), name ?? true);
+        runnerEntry = await planRunnerEntry(root, TERMINAL);
+      }
       const result = await installAsking(root, { home, update: name ?? true, dryRun, replace }, TERMINAL);
       if (runnerEntry !== null) {
         writeRunnerEntry(root, runnerEntry);

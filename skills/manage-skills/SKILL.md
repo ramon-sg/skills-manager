@@ -25,7 +25,10 @@ Run `@ramon-sg/skills-manager` with the runner and the version in
 - `"runner": "bun"`, or no `runner`: `bunx --bun @ramon-sg/skills-manager@<version> <command>`
 - `"runner": "node"`: `npx --yes @ramon-sg/skills-manager@<version> <command>`
 
-Never run it without `@<version>`. Below, `skills-manager <command>` means that command.
+Never run it without `@<version>`. If `.agents/runner.json`, or the
+`@ramon-sg/skills-manager` entry in it, is missing, ask the user which version to use
+before running anything; `init`, `add`, `install` and `update` write the entry.
+Below, `skills-manager <command>` means that command.
 
 ## See what is there
 

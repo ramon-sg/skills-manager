@@ -194,6 +194,7 @@ export const en = {
     exit: () => "Quit to install Bun",
     declined: () => "Install Bun and run the command again; nothing was changed.",
     invalid: ({ file }) => `${file} is not valid`,
+    writeFailed: ({ file }) => `Could not write ${file}`,
   },
   notice: {
     failed: ({ message }) => `skills-manager: ${message}`,

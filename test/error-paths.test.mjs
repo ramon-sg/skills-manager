@@ -4,13 +4,13 @@
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { setLang } from "../src/lang.mjs";
+import { fail, setLang } from "../src/lang.mjs";
 import { es } from "../src/messages/es.mjs";
 import { commandPick } from "../src/pick.mjs";
 
@@ -129,5 +129,24 @@ describe("init whose copy of the bundled skill fails", () => {
     } finally {
       chmodSync(skillsDir, 0o755);
     }
+  });
+});
+
+describe("init whose runner question is declined", () => {
+  test("writes nothing and never installs", async () => {
+    setLang("es");
+    const home = join(base, "home");
+    write(join(home, ".claude/skills/beta/SKILL.md"), "Beta.\n");
+    let installed = false;
+    const planRunner = async () => {
+      throw fail("runner.declined");
+    };
+    await assert.rejects(
+      commandPick(repo, { init: true, args: ["--select", "beta"], home, install: async () => { installed = true; }, report: () => {}, planRunner }),
+      (error) => error.key === "runner.declined",
+    );
+    assert.equal(installed, false);
+    assert.equal(existsSync(join(repo, ".agents/skills.json")), false);
+    assert.equal(existsSync(join(repo, ".agents/runner.json")), false);
   });
 });

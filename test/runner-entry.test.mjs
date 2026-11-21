@@ -133,6 +133,7 @@ test("keeps other tools and unknown keys", async () => {
   writeRunnerEntry(root, await planRunnerEntry(root, ask));
   const data = JSON.parse(readFileSync(join(root, FILE), "utf8"));
   assert.equal(data.runner, "node");
+  assert.equal(data.$schema, "x");
   assert.equal(data.extra, 1);
   assert.deepEqual(data.tools, { "@ramon-sg/issue-flow": "0.6.0", [PACKAGE]: VERSION });
   assert.equal(asked.count, 0);
@@ -152,4 +153,17 @@ test("a broken runner.json fails with its name", async () => {
   setBun(true);
   writeFile('{"runner":"deno"}');
   await assert.rejects(planRunnerEntry(root, terminal("node").ask), (error) => error.key === "runner.invalid" && error.message.includes(FILE));
+});
+
+test("a runner.json that cannot be read fails with its name", async () => {
+  setBun(true);
+  mkdirSync(join(root, FILE), { recursive: true });
+  await assert.rejects(planRunnerEntry(root, terminal("node").ask), (error) => error.key === "runner.invalid" && error.message.includes(FILE));
+});
+
+test("a runner.json that cannot be written fails with its name", async () => {
+  setBun(true);
+  const plan = await planRunnerEntry(root, terminal("node").ask);
+  writeFileSync(join(root, ".agents"), "not a folder\n");
+  assert.throws(() => writeRunnerEntry(root, plan), (error) => error.key === "runner.writeFailed" && error.message.includes(FILE));
 });

@@ -41,7 +41,7 @@ The unscoped `skills-manager` on npm is an unrelated package, so always use the 
 The file is shared with the other tools that read it (see
 [`@ramon-sg/runner`](https://www.npmjs.com/package/@ramon-sg/runner)); commit it.
 skills-manager only writes its own entry, never moves it to an older version, and leaves
-the other entries, `runner` and unknown keys alone. It writes it once the command has
+the other entries, `runner`, `$schema` and unknown keys alone. It writes it once the command has
 succeeded; `check`, `list`, `session-notice`, `--candidates` and `update --dry-run` never
 write it. When the file is missing, `runner` is `bun` if Bun is installed; if not, a
 terminal asks whether to use Node or quit to install Bun, and without a terminal it picks
@@ -335,6 +335,8 @@ project dir) and reports each problem on its own `skills-manager:` stderr line, 
 per missing skill, always exiting 0 so it never blocks the session start. Use the
 version that `.agents/runner.json` pins, and the command of its `runner` (with
 `"runner": "node"`: `npx --yes @ramon-sg/skills-manager@<version> session-notice`).
+skills-manager does not write this hook, so when `update` raises the version in
+`.agents/runner.json`, change the version in the hook too.
 A session in the cloud only receives the skills, and they arrive through the
 repo; plugin commands, hooks and MCP servers do not.
 

@@ -38,7 +38,9 @@ test("the packed tarball is a bundle without dependencies, and its bin runs chec
   try {
     const packed = run("npm", ["pack", "--pack-destination", base, "--json"], PACKAGE);
     assert.equal(packed.status, 0, packed.stderr);
-    const tarball = join(base, JSON.parse(packed.stdout)[0].filename);
+    // NOTE: the npm of Node 20 prints the prepack banner on stdout before the JSON.
+    const json = packed.stdout.slice(packed.stdout.search(/^\[/m));
+    const tarball = join(base, JSON.parse(json)[0].filename);
     const project = join(base, "project");
     mkdirSync(join(project, ".agents/skills/a"), { recursive: true });
     writeFileSync(join(project, "package.json"), '{"name":"p","version":"1.0.0"}');

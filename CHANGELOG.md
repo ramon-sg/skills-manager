@@ -4,6 +4,27 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## 1.5.0
+
+### Added
+
+- `init`, `add`, `install` and `update` record `@ramon-sg/skills-manager` and its exact
+  version in `.agents/runner.json` (with `@ramon-sg/runner`), creating the file when it
+  is missing: `runner` is `bun` when Bun is installed; without it, a terminal asks
+  whether to use Node or quit, and without a terminal it is `node` with a notice. The
+  entry never moves to an older version, and the other entries are left alone.
+  `package.json` is never touched.
+- CI also runs the tests with Bun.
+
+### Changed
+
+- The bundled `manage-skills` skill no longer says `npx`: it runs the tool with the
+  runner and version in `.agents/runner.json`.
+- The README no longer recommends a `devDependency`; it runs the tool with
+  `bunx --bun` or `npx --yes` and the version in `.agents/runner.json`.
+- The package is published as a single bundle (`dist/cli.mjs`) with no `dependencies`,
+  so what runs is exactly what was tested.
+
 ## 1.4.0
 
 ### Added

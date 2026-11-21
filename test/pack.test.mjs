@@ -17,9 +17,6 @@ const PACKAGE = join(dirname(fileURLToPath(import.meta.url)), "..");
 /** Whether `npm` can run here. */
 const HAS_NPM = spawnSync("npm", ["--version"], { encoding: "utf8" }).status === 0;
 
-/** Whether `bun` can run here; without it the Bun case is skipped. */
-const HAS_BUN = spawnSync("bun", ["--version"], { encoding: "utf8" }).status === 0;
-
 /** Git configuration to commit without depending on the user's. */
 const GIT_IDENTITY = ["-c", "user.name=Test", "-c", "user.email=test@example.com"];
 
@@ -90,7 +87,8 @@ test("the packed tarball is a bundle without dependencies, and its bin runs chec
     assert.ok(existsSync(join(fresh, ".agents/skills/manage-skills/SKILL.md")));
     assert.equal(existsSync(join(fresh, "package.json")), false);
 
-    if (HAS_BUN) {
+    // NOTE: checked from the project folder, since a version manager may pin bun only in some folders.
+    if (run("bun", ["--version"], project).status === 0) {
       const withBun = run("bun", ["--bun", join(project, "node_modules/.bin/skills-manager"), "session-notice"], project);
       assert.equal(withBun.status, 0, withBun.stderr);
       assert.equal(withBun.stdout, notice.stdout);

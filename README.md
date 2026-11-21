@@ -6,35 +6,46 @@ into `.agents/skills/` so every session has them, cloud sessions included, witho
 downloading anything. A manifest says which ones you want and a lock records the
 exact commit and content hash that was copied.
 
-Requires Node 20.12 or newer.
+Runs with Bun or with Node 20.12 or newer.
 
 ## Install
 
 ```sh
-npx @ramon-sg/skills-manager init
+bunx --bun @ramon-sg/skills-manager init      # with Bun
+npx --yes @ramon-sg/skills-manager init       # with Node
 ```
 
-Recommended: add it to the project as a devDependency and expose the commands as
-scripts (the unscoped `skills-manager` on npm is an unrelated package, so always
-use the full `@ramon-sg/` name with `npx`):
+Nothing is installed in the repo: no `devDependencies`, lockfile or `node_modules`.
+Instead, `init` (and `add`, `install` and `update`) records the exact version in
+`.agents/runner.json`, and from then on the tool runs with the runner and version that
+file says:
 
-```sh
-npm install --save-dev @ramon-sg/skills-manager
-```
+| `runner` in `.agents/runner.json` | Command                                                 |
+| --------------------------------- | ------------------------------------------------------- |
+| `bun`, or none                    | `bunx --bun @ramon-sg/skills-manager@<version> <args>`  |
+| `node`                            | `npx --yes @ramon-sg/skills-manager@<version> <args>`   |
+
+The unscoped `skills-manager` on npm is an unrelated package, so always use the full
+`@ramon-sg/` name. The examples below write `skills-manager <command>` for that command.
+
+### `.agents/runner.json`
 
 ```json
 {
-  "scripts": {
-    "skills:install": "skills-manager install",
-    "skills:update": "skills-manager update",
-    "skills:check": "skills-manager check"
-  }
+  "$schema": "https://cdn.jsdelivr.net/npm/@ramon-sg/runner@1.0.0/runner.schema.json",
+  "runner": "bun",
+  "tools": { "@ramon-sg/skills-manager": "1.5.0" }
 }
 ```
 
-The examples below use `npx @ramon-sg/skills-manager <command>`. Once it is a
-devDependency, `npx --no-install skills-manager <command>` (or the scripts above)
-runs the installed copy.
+The file is shared with the other tools that read it (see
+[`@ramon-sg/runner`](https://www.npmjs.com/package/@ramon-sg/runner)); commit it.
+skills-manager only writes its own entry, never moves it to an older version, and leaves
+the other entries, `runner` and unknown keys alone. It writes it once the command has
+succeeded; `check`, `list`, `session-notice`, `--candidates` and `update --dry-run` never
+write it. When the file is missing, `runner` is `bun` if Bun is installed; if not, a
+terminal asks whether to use Node or quit to install Bun, and without a terminal it picks
+`node` with a notice. macOS and Linux only.
 
 ## Language and help
 
@@ -104,13 +115,13 @@ stops with a message asking you to upgrade the package.
 
 | Command                           | What it does                                                            | Example                                                   |
 | --------------------------------- | ----------------------------------------------------------------------- | --------------------------------------------------------- |
-| `init`                            | First time: pick from what is installed on your machine; builds the manifest and copies the bundled `manage-skills` skill. | `npx @ramon-sg/skills-manager init`                                 |
-| `add`                             | Adds more skills to the manifest and installs them.                     | `npx @ramon-sg/skills-manager add --select superpowers@claude-plugins-official` |
-| `install`                         | Makes disk and lock match the manifest.                                 | `npx @ramon-sg/skills-manager install`                              |
-| `update [name]`                   | Moves to the latest published. `--dry-run` only prints what would change. | `npx @ramon-sg/skills-manager update --dry-run`                     |
-| `check`                           | Fails if disk, lock and manifest disagree. Meant for CI.                | `npx @ramon-sg/skills-manager check`                                |
-| `list`                            | Lists the lock: origin, version and whether a newer one exists.         | `npx @ramon-sg/skills-manager list`                                 |
-| `session-notice`                  | Prints a notice for a `SessionStart` hook (see below).                  | `npx @ramon-sg/skills-manager session-notice`                       |
+| `init`                            | First time: pick from what is installed on your machine; builds the manifest and copies the bundled `manage-skills` skill. | `skills-manager init`                                 |
+| `add`                             | Adds more skills to the manifest and installs them.                     | `skills-manager add --select superpowers@claude-plugins-official` |
+| `install`                         | Makes disk and lock match the manifest.                                 | `skills-manager install`                              |
+| `update [name]`                   | Moves to the latest published. `--dry-run` only prints what would change. | `skills-manager update --dry-run`                     |
+| `check`                           | Fails if disk, lock and manifest disagree. Meant for CI.                | `skills-manager check`                                |
+| `list`                            | Lists the lock: origin, version and whether a newer one exists.         | `skills-manager list`                                 |
+| `session-notice`                  | Prints a notice for a `SessionStart` hook (see below).                  | `skills-manager session-notice`                       |
 
 In a terminal, `init` and `add` show a checkbox list: one line per plugin with how
 many skills it brings, space to mark and enter to continue. For every marked plugin
@@ -125,11 +136,11 @@ the name of a local skill, separated by commas. With `--repo` they follow
 
 ## How to update
 
-1. `npx @ramon-sg/skills-manager update --dry-run`: see what would change.
-2. `npx @ramon-sg/skills-manager update`: apply it.
+1. `skills-manager update --dry-run`: see what would change.
+2. `skills-manager update`: apply it.
 3. Review the diff: `git diff --stat .agents/skills` and every touched `SKILL.md`.
    They are instructions agents will read, so know what comes in.
-4. `npx @ramon-sg/skills-manager check`, then commit.
+4. `skills-manager check`, then commit.
 
 ## No hand edits
 
@@ -138,9 +149,9 @@ longer matches the lock and `check` fails (also if a script loses its executable
 bit). To change something, use the commands. If the difference was a hand edit,
 `install` refuses to continue and names the two ways out:
 
-- **Go back to the locked version:** `rm -rf .agents/skills/<name> && npx @ramon-sg/skills-manager install`.
+- **Go back to the locked version:** `rm -rf .agents/skills/<name> && skills-manager install`.
   It rebuilds the skill at the pinned commit, fetching nothing new.
-- **Move to the latest published:** `npx @ramon-sg/skills-manager update <name>`. It overwrites
+- **Move to the latest published:** `skills-manager update <name>`. It overwrites
   the edit and moves the lock to the latest commit. `update --dry-run` warns
   `<name>: edited by hand, will be overwritten` for every skill that would lose an edit.
 
@@ -151,8 +162,8 @@ bit). To change something, use the commands. If the difference was a hand edit,
 its marketplace on your machine:
 
 ```sh
-npx @ramon-sg/skills-manager add --repo owner/skills --candidates
-npx @ramon-sg/skills-manager add --repo owner/skills --select my-plugin:one+two
+skills-manager add --repo owner/skills --candidates
+skills-manager add --repo owner/skills --select my-plugin:one+two
 ```
 
 `--repo` takes `owner/name`, an `https://` URL or a `file://` URL, once. `--ref` picks
@@ -205,7 +216,7 @@ not overwrite it silently:
   allows those:
 
   ```sh
-  npx @ramon-sg/skills-manager add --catalog ramon-sg/agent-skills --select catalog:ramon-sg/agent-skills/code-audit --replace code-audit
+  skills-manager add --catalog ramon-sg/agent-skills --select catalog:ramon-sg/agent-skills/code-audit --replace code-audit
   ```
 
 Replacing deletes the own folder and writes the incoming skill. An [editable file](#editable-files)
@@ -241,8 +252,8 @@ Pick from one or more catalogs with `--catalog` (repeatable). The menu groups th
 skills by category, with their description, and shows what each one requires:
 
 ```sh
-npx @ramon-sg/skills-manager add --catalog ramon-sg/agent-skills
-npx @ramon-sg/skills-manager init --catalog owner/one --catalog owner/two#v2.0.0
+skills-manager add --catalog ramon-sg/agent-skills
+skills-manager init --catalog owner/one --catalog owner/two#v2.0.0
 ```
 
 `#<tag>` pins the source to that tag; `#<branch>` follows the branch. Without a
@@ -311,7 +322,7 @@ Then call it from `.claude/settings.json`:
     "SessionStart": [
       {
         "hooks": [
-          { "type": "command", "command": "npx --no-install skills-manager session-notice" }
+          { "type": "command", "command": "bunx --bun @ramon-sg/skills-manager@1.5.0 session-notice" }
         ]
       }
     ]
@@ -321,10 +332,10 @@ Then call it from `.claude/settings.json`:
 
 `session-notice` finds the repo from the current directory (the hook runs from the
 project dir) and reports each problem on its own `skills-manager:` stderr line, one
-per missing skill, always exiting 0 so it never blocks the session start. With
-`npx --no-install`, if the package is not installed npx prints its own error; that
-does not block the session start either. `node_modules/.bin/skills-manager
-session-notice` works too, without going through `npx`. A session in the cloud only receives the skills, and they arrive through the
+per missing skill, always exiting 0 so it never blocks the session start. Use the
+version that `.agents/runner.json` pins, and the command of its `runner` (with
+`"runner": "node"`: `npx --yes @ramon-sg/skills-manager@<version> session-notice`).
+A session in the cloud only receives the skills, and they arrive through the
 repo; plugin commands, hooks and MCP servers do not.
 
 ## The bundled skill

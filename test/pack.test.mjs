@@ -5,7 +5,7 @@
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -17,6 +17,9 @@ const PACKAGE = join(dirname(fileURLToPath(import.meta.url)), "..");
 /** Whether `npm` can run here. */
 const HAS_NPM = spawnSync("npm", ["--version"], { encoding: "utf8" }).status === 0;
 
+/** Whether `bun` can run here; without it the Bun case is skipped. */
+const HAS_BUN = spawnSync("bun", ["--version"], { encoding: "utf8" }).status === 0;
+
 /** Git configuration to commit without depending on the user's. */
 const GIT_IDENTITY = ["-c", "user.name=Test", "-c", "user.email=test@example.com"];
 
@@ -26,13 +29,14 @@ const GIT_IDENTITY = ["-c", "user.name=Test", "-c", "user.email=test@example.com
  * @param command - Executable.
  * @param args - Arguments.
  * @param cwd - Working folder.
+ * @param env - Environment (default the process's).
  * @returns The spawn result with text output.
  */
-function run(command, args, cwd) {
-  return spawnSync(command, args, { cwd, encoding: "utf8" });
+function run(command, args, cwd, env = process.env) {
+  return spawnSync(command, args, { cwd, encoding: "utf8", env });
 }
 
-test("the packed tarball installs and its bin runs check and session-notice", { skip: !HAS_NPM && "npm is not available" }, () => {
+test("the packed tarball is a bundle without dependencies, and its bin runs check, session-notice and init", { skip: !HAS_NPM && "npm is not available" }, () => {
   const base = mkdtempSync(join(tmpdir(), "pack-"));
   try {
     const packed = run("npm", ["pack", "--pack-destination", base, "--json"], PACKAGE);
@@ -55,6 +59,42 @@ test("the packed tarball installs and its bin runs check and session-notice", { 
     const notice = run("npx", ["--no-install", "skills-manager", "session-notice"], project);
     assert.equal(notice.status, 0, notice.stderr);
     assert.match(notice.stdout, /A skill\./);
+
+    const listing = run("tar", ["-tzf", tarball], base);
+    assert.equal(listing.status, 0, listing.stderr);
+    const listed = listing.stdout.split("\n");
+    assert.ok(listed.includes("package/dist/cli.mjs"), "the tarball has no dist/cli.mjs");
+    assert.ok(!listed.some((file) => file.startsWith("package/src/")), "the tarball ships src/");
+    const installedPkg = join(project, "node_modules/@ramon-sg/skills-manager");
+    const manifest = JSON.parse(readFileSync(join(installedPkg, "package.json"), "utf8"));
+    assert.deepEqual(manifest.dependencies ?? {}, {});
+    assert.deepEqual(readdirSync(join(project, "node_modules")).filter((name) => !name.startsWith(".")), ["@ramon-sg"]);
+    assert.deepEqual(readdirSync(join(project, "node_modules/@ramon-sg")), ["skills-manager"]);
+
+    // init from the bundle: version.mjs and the bundled skill resolve from dist/.
+    const home = join(base, "home");
+    mkdirSync(join(home, ".claude/skills/my-skill"), { recursive: true });
+    writeFileSync(join(home, ".claude/skills/my-skill/SKILL.md"), "Mine.\n");
+    const bin = join(base, "bin");
+    mkdirSync(bin);
+    writeFileSync(join(bin, "bunx"), "#!/bin/sh\nexit 0\n");
+    chmodSync(join(bin, "bunx"), 0o755);
+    const fresh = join(base, "fresh");
+    mkdirSync(fresh);
+    assert.equal(run("git", ["init", "-q"], fresh).status, 0);
+    const env = { ...process.env, SKILLS_HOME: home, PATH: `${bin}:${process.env.PATH}` };
+    const init = run(process.execPath, [join(project, "node_modules/.bin/skills-manager"), "init", "--select", "my-skill"], fresh, env);
+    assert.equal(init.status, 0, `${init.stdout}${init.stderr}`);
+    const runner = JSON.parse(readFileSync(join(fresh, ".agents/runner.json"), "utf8"));
+    assert.deepEqual(runner.tools, { "@ramon-sg/skills-manager": manifest.version });
+    assert.ok(existsSync(join(fresh, ".agents/skills/manage-skills/SKILL.md")));
+    assert.equal(existsSync(join(fresh, "package.json")), false);
+
+    if (HAS_BUN) {
+      const withBun = run("bun", ["--bun", join(project, "node_modules/.bin/skills-manager"), "session-notice"], project);
+      assert.equal(withBun.status, 0, withBun.stderr);
+      assert.equal(withBun.stdout, notice.stdout);
+    }
   } finally {
     rmSync(base, { recursive: true, force: true });
   }

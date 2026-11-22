@@ -1,7 +1,7 @@
 /**
  * @file Tests for `src/runner-entry.mjs`: the entry of skills-manager in
  * `.agents/runner.json`. Whether Bun is installed is decided by the `PATH` each
- * test builds: a fake `bunx` that exits 0, or none at all. No real `bunx`/`npx` runs.
+ * test builds: a fake `bun` that exits 0, or none at all. No real `bun`/`npx` runs.
  */
 import assert from "node:assert/strict";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -28,7 +28,7 @@ let root;
 const savedPath = process.env.PATH;
 
 /**
- * Leaves in `PATH` only a folder, with a fake `bunx` when `bun` is true.
+ * Leaves in `PATH` only a folder, with a fake `bun` when `bun` is true.
  *
  * @param bun - Whether Bun looks installed.
  */
@@ -36,8 +36,8 @@ function setBun(bun) {
   const bin = join(base, bun ? "with-bun" : "without-bun");
   mkdirSync(bin, { recursive: true });
   if (bun) {
-    writeFileSync(join(bin, "bunx"), "#!/bin/sh\nexit 0\n");
-    chmodSync(join(bin, "bunx"), 0o755);
+    writeFileSync(join(bin, "bun"), "#!/bin/sh\nexit 0\n");
+    chmodSync(join(bin, "bun"), 0o755);
   }
   process.env.PATH = bin;
 }
@@ -85,7 +85,7 @@ afterEach(() => {
   rmSync(base, { recursive: true, force: true });
 });
 
-test("creates runner.json with bun when bunx is on PATH", async () => {
+test("creates runner.json with bun when bun is on PATH", async () => {
   setBun(true);
   const { ask, asked } = terminal("node");
   writeRunnerEntry(root, await planRunnerEntry(root, ask));

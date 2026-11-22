@@ -81,7 +81,7 @@ function publish(sha) {
 }
 
 /**
- * A folder with a fake `bunx` that exits 0, so `chooseRunner` sees Bun installed
+ * A folder with a fake `bun` that exits 0, so `chooseRunner` sees Bun installed
  * without running the real one.
  *
  * @returns Its path.
@@ -89,8 +89,8 @@ function publish(sha) {
 function binWithBun() {
   const bin = join(base, "bin-bun");
   if (!existsSync(bin)) {
-    write(join(bin, "bunx"), "#!/bin/sh\nexit 0\n");
-    chmodSync(join(bin, "bunx"), 0o755);
+    write(join(bin, "bun"), "#!/bin/sh\nexit 0\n");
+    chmodSync(join(bin, "bun"), 0o755);
   }
   return bin;
 }
@@ -114,7 +114,7 @@ function binWithoutBun() {
  * Runs the CLI in the temporary repo, with the fake home.
  *
  * @param args - CLI arguments.
- * @param opts - `bun`: whether a (fake) `bunx` is on `PATH` (default true; false leaves only
+ * @param opts - `bun`: whether a (fake) `bun` is on `PATH` (default true; false leaves only
  * `git`); `lang`: `SKILLS_MANAGER_LANG` (default `en`).
  * @returns Exit code and combined output.
  */
@@ -653,7 +653,8 @@ describe("init and add", () => {
   test("the bundled skill names no fixed runner", () => {
     const skill = readFileSync(join(dirname(CLI), "..", "skills", "manage-skills", "SKILL.md"), "utf8");
     assert.doesNotMatch(skill, /npx @ramon-sg|npx skills-manager|--no-install/);
-    assert.ok(skill.includes("bunx --bun @ramon-sg/skills-manager@<version>"));
+    assert.doesNotMatch(skill, /bunx/);
+    assert.ok(skill.includes("bun x --bun @ramon-sg/skills-manager@<version>"));
     assert.ok(skill.includes("npx --yes @ramon-sg/skills-manager@<version>"));
     assert.ok(skill.includes(".agents/runner.json"));
   });

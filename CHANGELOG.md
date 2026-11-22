@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## 1.5.2
+
+### Fixed
+
+- With Bun, the tool runs with `bun x --bun` instead of `bunx --bun`: with Bun installed
+  through asdf, `bunx` is a shell script that splits arguments containing spaces
+  (ramon-sg/runner#1). The bundled `manage-skills` skill and the README say
+  `bun x --bun`, and a `SessionStart` hook written with `bunx --bun` should switch too.
+- Bun counts as installed when `bun` is on `PATH`, not `bunx` (`@ramon-sg/runner` 1.0.1).
+
 ## 1.5.1
 
 ### Fixed

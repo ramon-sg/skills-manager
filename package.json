@@ -1,6 +1,6 @@
 {
   "name": "@ramon-sg/skills-manager",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "description": "Manage third-party agent skills vendored in a repository.",
   "type": "module",
   "license": "MIT",
@@ -43,7 +43,7 @@
   },
   "devDependencies": {
     "@clack/prompts": "1.8.1",
-    "@ramon-sg/runner": "1.0.0",
+    "@ramon-sg/runner": "1.0.1",
     "esbuild": "0.28.2"
   }
 }

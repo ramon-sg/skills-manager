@@ -22,7 +22,7 @@ the commit to the user.
 Run `@ramon-sg/skills-manager` with the runner and the version in
 `.agents/runner.json` (`tools["@ramon-sg/skills-manager"]`):
 
-- `"runner": "bun"`, or no `runner`: `bunx --bun @ramon-sg/skills-manager@<version> <command>`
+- `"runner": "bun"`, or no `runner`: `bun x --bun @ramon-sg/skills-manager@<version> <command>`
 - `"runner": "node"`: `npx --yes @ramon-sg/skills-manager@<version> <command>`
 
 Never run it without `@<version>`. If `.agents/runner.json`, or the

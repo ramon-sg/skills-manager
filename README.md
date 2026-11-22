@@ -11,7 +11,7 @@ Runs with Bun or with Node 20.12 or newer.
 ## Install
 
 ```sh
-bunx --bun @ramon-sg/skills-manager init      # with Bun
+bun x --bun @ramon-sg/skills-manager init     # with Bun
 npx --yes @ramon-sg/skills-manager init       # with Node
 ```
 
@@ -22,7 +22,7 @@ file says:
 
 | `runner` in `.agents/runner.json` | Command                                                 |
 | --------------------------------- | ------------------------------------------------------- |
-| `bun`, or none                    | `bunx --bun @ramon-sg/skills-manager@<version> <args>`  |
+| `bun`, or none                    | `bun x --bun @ramon-sg/skills-manager@<version> <args>` |
 | `node`                            | `npx --yes @ramon-sg/skills-manager@<version> <args>`   |
 
 The unscoped `skills-manager` on npm is an unrelated package, so always use the full
@@ -32,9 +32,9 @@ The unscoped `skills-manager` on npm is an unrelated package, so always use the 
 
 ```json
 {
-  "$schema": "https://cdn.jsdelivr.net/npm/@ramon-sg/runner@1.0.0/runner.schema.json",
+  "$schema": "https://cdn.jsdelivr.net/npm/@ramon-sg/runner@1.0.1/runner.schema.json",
   "runner": "bun",
-  "tools": { "@ramon-sg/skills-manager": "1.5.0" }
+  "tools": { "@ramon-sg/skills-manager": "1.5.2" }
 }
 ```
 
@@ -322,7 +322,7 @@ Then call it from `.claude/settings.json`:
     "SessionStart": [
       {
         "hooks": [
-          { "type": "command", "command": "bunx --bun @ramon-sg/skills-manager@1.5.0 session-notice" }
+          { "type": "command", "command": "bun x --bun @ramon-sg/skills-manager@1.5.2 session-notice" }
         ]
       }
     ]
@@ -337,6 +337,9 @@ version that `.agents/runner.json` pins, and the command of its `runner` (with
 `"runner": "node"`: `npx --yes @ramon-sg/skills-manager@<version> session-notice`).
 skills-manager does not write this hook, so when `update` raises the version in
 `.agents/runner.json`, change the version in the hook too.
+A hook written for an earlier version with `bunx --bun ...` should switch to
+`bun x --bun ...`: with Bun installed through asdf, `bunx` is a shell script that
+splits arguments containing spaces.
 A session in the cloud only receives the skills, and they arrive through the
 repo; plugin commands, hooks and MCP servers do not.
 

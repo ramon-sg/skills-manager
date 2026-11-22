@@ -76,8 +76,8 @@ test("the packed tarball is a bundle without dependencies, and its bin runs chec
     writeFileSync(join(home, ".claude/skills/my-skill/SKILL.md"), "Mine.\n");
     const bin = join(base, "bin");
     mkdirSync(bin);
-    writeFileSync(join(bin, "bunx"), "#!/bin/sh\nexit 0\n");
-    chmodSync(join(bin, "bunx"), 0o755);
+    writeFileSync(join(bin, "bun"), "#!/bin/sh\nexit 0\n");
+    chmodSync(join(bin, "bun"), 0o755);
     const fresh = join(base, "fresh");
     mkdirSync(fresh);
     assert.equal(run("git", ["init", "-q"], fresh).status, 0);
